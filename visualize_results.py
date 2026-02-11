@@ -60,13 +60,24 @@ def load_all_runs(results_dir: Path) -> list[dict[str, Any]]:
     return runs
 
 
-def build_html(runs: list[dict[str, Any]]) -> str:
+def load_experiment_config(results_dir: Path) -> dict[str, Any] | None:
+    """Load experiment_config.yaml if present."""
+    for name in ["experiment_config.yaml", "experiment_config.yml"]:
+        path = results_dir / name
+        if path.exists():
+            import yaml
+            return yaml.safe_load(path.read_text())
+    return None
+
+
+def build_html(runs: list[dict[str, Any]], config: dict[str, Any] | None = None) -> str:
     """Build a self-contained HTML dashboard."""
     data = json.dumps({
         "runs": runs,
         "methods": METHODS,
         "labels": METHOD_LABELS,
         "colors": METHOD_COLORS,
+        "config": config,
     })
 
     return f"""<!doctype html>
@@ -142,7 +153,14 @@ tr:hover {{ background: #f8fafc; }}
     <p>Comparing knowledge-graph retrieval vs RAG baselines on SWE-bench issues</p>
   </header>
 
+  <div id="configBanner" class="card" style="display:none;margin-bottom:16px;">
+    <h2 id="configTitle"></h2>
+    <p id="configDesc" style="color:var(--muted);font-size:0.9rem;"></p>
+  </div>
+
   <div class="controls">
+    <label for="repoFilter">Repo:</label>
+    <select id="repoFilter"><option value="all">All repos</option></select>
     <label for="runSelect">Run:</label>
     <select id="runSelect"></select>
   </div>
@@ -194,13 +212,15 @@ tr:hover {{ background: #f8fafc; }}
     <table id="crossRunTable">
       <thead>
         <tr>
-          <th>Run</th>
+          <th>Repo</th>
           <th>Mode (GM / RAG)</th>
-          <th>Issues</th>
+          <th class="num">Issues</th>
           <th class="num">GM F1</th>
           <th class="num">RAG F1</th>
           <th class="num">GM Tok/Issue</th>
           <th class="num">RAG Tok/Issue</th>
+          <th class="num">GM Setup</th>
+          <th class="num">RAG Setup</th>
         </tr>
       </thead>
       <tbody id="crossRunBody"></tbody>
@@ -222,23 +242,60 @@ const COLORS = D.colors;
 
 let qualityChart = null, costChart = null, scatterChart = null;
 
-// --- Populate run selector ---
-const runSel = document.getElementById("runSelect");
-for (const run of D.runs) {{
-  const opt = document.createElement("option");
-  const m = run.meta;
-  opt.value = run.run_id;
-  opt.textContent = `${{run.run_id}} | ${{m.repo_name || "?"}} | n=${{m.n_issues_evaluated || "?"}} | GM=${{m.manager_mode || "?"}} RAG=${{m.rag_mode || "?"}}`;
-  runSel.appendChild(opt);
+// --- Config banner ---
+if (D.config) {{
+  const banner = document.getElementById("configBanner");
+  banner.style.display = "";
+  document.getElementById("configTitle").textContent = D.config.suite || "Experiment Suite";
+  document.getElementById("configDesc").textContent = (D.config.description || "").trim();
 }}
-// Select latest run by default (last in list)
-if (D.runs.length) runSel.value = D.runs[D.runs.length - 1].run_id;
+
+// --- Repo filter ---
+const repoFilter = document.getElementById("repoFilter");
+const repos = [...new Set(D.runs.map(r => r.meta.repo_name || "?"))].sort();
+for (const repo of repos) {{
+  const opt = document.createElement("option");
+  opt.value = repo;
+  opt.textContent = repo;
+  repoFilter.appendChild(opt);
+}}
+
+function filteredRuns() {{
+  const repo = repoFilter.value;
+  return repo === "all" ? D.runs : D.runs.filter(r => (r.meta.repo_name || "?") === repo);
+}}
+
+function rebuildRunSelect() {{
+  const runSel = document.getElementById("runSelect");
+  const prev = runSel.value;
+  runSel.innerHTML = "";
+  for (const run of filteredRuns()) {{
+    const opt = document.createElement("option");
+    const m = run.meta;
+    opt.value = run.run_id;
+    opt.textContent = `${{m.repo_name || "?"}} | GM=${{m.manager_mode || "?"}} RAG=${{m.rag_mode || "?"}} | n=${{m.n_issues_evaluated || "?"}}`;
+    runSel.appendChild(opt);
+  }}
+  const ids = filteredRuns().map(r => r.run_id);
+  if (ids.includes(prev)) runSel.value = prev;
+  else if (ids.length) runSel.value = ids[ids.length - 1];
+  render();
+}}
+
+const runSel = document.getElementById("runSelect");
+repoFilter.addEventListener("change", () => {{ rebuildRunSelect(); buildCrossRunTable(); }});
+rebuildRunSelect();
 
 // --- Cross-run table ---
-if (D.runs.length > 1) {{
-  document.getElementById("crossRunCard").style.display = "";
+function buildCrossRunTable() {{
+  const runs = filteredRuns();
+  const card = document.getElementById("crossRunCard");
   const tbody = document.getElementById("crossRunBody");
-  for (const run of D.runs) {{
+  tbody.innerHTML = "";
+  if (runs.length < 2) {{ card.style.display = "none"; return; }}
+  card.style.display = "";
+
+  for (const run of runs) {{
     const m = run.meta;
     const gm = run.summary.graph_manager || {{}};
     const ra = run.summary.rag_agent || {{}};
@@ -246,17 +303,20 @@ if (D.runs.length > 1) {{
     tr.style.cursor = "pointer";
     tr.addEventListener("click", () => {{ runSel.value = run.run_id; render(); }});
     tr.innerHTML = `
-      <td>${{run.run_id}}</td>
+      <td><strong>${{m.repo_name || "?"}}</strong></td>
       <td>${{m.manager_mode || "?"}} / ${{m.rag_mode || "?"}}</td>
       <td class="num">${{m.n_issues_evaluated || "?"}}</td>
       <td class="num">${{fmt3(gm.mean_f1)}}</td>
       <td class="num">${{fmt3(ra.mean_f1)}}</td>
       <td class="num">${{fmtK(gm.avg_llm_tokens_per_issue)}}</td>
       <td class="num">${{fmtK(ra.avg_llm_tokens_per_issue)}}</td>
+      <td class="num">${{fmtK(gm.setup_embedding_tokens)}}</td>
+      <td class="num">${{fmtK(ra.setup_embedding_tokens)}}</td>
     `;
     tbody.appendChild(tr);
   }}
 }}
+buildCrossRunTable();
 
 // --- Helpers ---
 function fmt3(v) {{ return (v || 0).toFixed(3); }}
@@ -565,7 +625,8 @@ def main() -> None:
     if not runs:
         raise SystemExit(f"No valid runs found under {results_dir}")
 
-    html = build_html(runs)
+    config = load_experiment_config(results_dir)
+    html = build_html(runs, config=config)
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html)

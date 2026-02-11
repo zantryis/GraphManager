@@ -1,0 +1,45 @@
+# Experiment suite configuration
+# Run with: python run_suite.py experiments.yaml
+
+suite: multi-repo-v1
+description: >
+  Cross-repository evaluation of Graph-Manager vs RAG baselines.
+  Tests generalization across 3 Python projects of varying size and structure.
+
+defaults:
+  n_issues: 10
+  max_turns: 6
+
+experiments:
+  # --- Flask (small web framework, 11 issues in SWE-bench) ---
+  - repo: pallets/flask
+    source_prefixes: [src/flask]
+    manager_mode: progressive
+    rag_mode: progressive
+
+  - repo: pallets/flask
+    source_prefixes: [src/flask]
+    manager_mode: baseline
+    rag_mode: baseline
+
+  # --- Requests (HTTP library, 44 issues in SWE-bench) ---
+  - repo: psf/requests
+    source_prefixes: [requests]
+    manager_mode: progressive
+    rag_mode: progressive
+
+  - repo: psf/requests
+    source_prefixes: [requests]
+    manager_mode: baseline
+    rag_mode: baseline
+
+  # --- Pytest (testing framework, 119 issues in SWE-bench) ---
+  - repo: pytest-dev/pytest
+    source_prefixes: [src/_pytest, src/pytest]
+    manager_mode: progressive
+    rag_mode: progressive
+
+  - repo: pytest-dev/pytest
+    source_prefixes: [src/_pytest, src/pytest]
+    manager_mode: baseline
+    rag_mode: baseline
