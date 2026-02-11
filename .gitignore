@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment variables (contains API keys)
+.env
+
+# Cloned repositories (downloaded on demand)
+flask_repo/
+*_repo/
+
+# Experiment results (generated data)
+results/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code settings (personal)
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
