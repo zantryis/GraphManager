@@ -35,19 +35,30 @@ These are not research questions. Fix them before drawing any conclusions.
 **Goal:** remove noise sources so failures are attributable to retrieval quality
 or model reasoning, not configuration bugs.
 
-### 0a. Fix hard limits
+### 0a. Make limits manifest-tunable, then ablate before committing values
 
-In `src/patch_agent.py`:
-- `max_output_tokens`: 4096 → 16384
-- `max_file_chars`: 8000 → 24000
+`max_output_tokens`, `max_file_chars`, and `manager_max_turns` are currently
+hardcoded in `src/patch_agent.py` and the manifest. Before blindly raising them
+(which could 4x token cost), treat them as knobs:
 
-In `patch_manifests/swebench_verified_requests_v1.yaml`:
-- `manager_max_turns`: 4 → 8
+1. Expose all three as manifest-level fields with safe defaults:
+   - `patch_max_output_tokens` (default: current 4096)
+   - `patch_max_file_chars` (default: current 8000)
+   - `manager_max_turns` (already a manifest field, default: current 4)
+
+2. Run a small ablation on 2–3 instances from the 8-instance manifest:
+   - Try `patch_max_output_tokens`: 4096 → 8192 → 16384
+   - Try `manager_max_turns`: 4 → 6 → 8
+   - Find the minimum value that eliminates `stop_reason: MAX_TOKENS` and
+     `stop_reason: max_turns` without a natural stop.
+
+3. Set those minimum values as the new manifest defaults. Do not jump straight
+   to the maximum — cost scales linearly with output tokens.
 
 Rationale: a non-trivial unified diff for a 400-line file with 3-line context
 can easily exceed 4096 tokens. At 8000 chars, requests/sessions.py is truncated
 to ~250 lines. The manager at 4 turns always exhausts budget before naturally
-concluding (it should emit the JSON result when done, not be cut off).
+concluding. But the right ceiling should be data-driven, not a guess.
 
 ### 0b. Fix Docker harness result capture
 
@@ -158,6 +169,15 @@ If cold-start gets 0/8 and graph retrieval gets 2/8, retrieval is clearly adding
 value. If cold-start gets 1/8, retrieval is not helping on this sample.
 
 Implementation: add `retrieval_method: none` as a supported value in manifests.
+
+**Critical:** cold-start must be a true issue-only call to the model — the model
+receives the issue text and must attempt a patch from scratch with no file
+contents provided. It must NOT silently return `no_patch` because the file
+list is empty (the current `_build_file_contents` short-circuit does exactly
+this and would produce a misleading 0/8 without ever calling the API).
+The PatchAgent must have an explicit `no_context_mode` that skips file loading
+and calls the model with just the issue text, letting the model attempt a patch
+or emit `CANNOT_PATCH` on its own terms.
 
 ### 2c. RAG patch baseline
 
