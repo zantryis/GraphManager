@@ -81,6 +81,16 @@ Repeat sets: `results/clean_eval_20260211_201431/repeat_sets/`
 All strict SWE-bench cells have `commit_repeat_ratio=0.0` (each issue at its own commit).
 Same-snapshot cells have `commit_repeat_ratio≥0.8` (world-model reuse enabled by design).
 
+## End-to-End Patching (2026-02-18)
+
+| Run ID | Repo | Instances | Patch rate | Resolved rate (Pass@1) | Harness outcomes | Retrieval method | Models |
+|---|---|---:|---:|---:|---|---|---|
+| `20260218_120541` | `psf/requests` | 8 | 8/8 (100.0%) | 1/8 (12.5%) | 1 resolved, 3 unresolved, 4 patch-apply errors | `gm_progressive` | manager=`gemini-3-flash-preview`, patch=`gemini-2.5-flash` |
+
+Artifacts:
+- Patch summary: `results/patch_runs/20260218_120541/patch_summary.json`
+- SWE-bench harness report: `graphmanager-gm_progressive.graphmanager_20260218_120541.json`
+
 ## Quick Start
 
 ```bash
@@ -184,7 +194,7 @@ tests/                     evaluation and graph-resolution tests
 ## Limitations
 
 1. Small sample in headline runs (`n=10` per repo; `n=5` for yt-dlp due to dataset size).
-2. Retrieval-only evaluation (not end-to-end patch generation / Pass@1). Patching pipeline is next.
+2. End-to-end patching is now wired and runnable; patch apply robustness is still a major limiter on resolved rate.
 3. `gm_deterministic` uses default untuned scoring weights. Coefficient tuning (frozen dev split grid search) is planned.
 4. `langchain-ai/langchain` cell is currently excluded pending source_prefix fix and re-run.
 5. Static analysis still misses some dynamic Python behavior.

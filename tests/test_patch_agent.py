@@ -53,6 +53,36 @@ Here is the fix:
         result = extract_patch(response)
         self.assertEqual(result, diff.strip())
 
+    def test_extracts_raw_unified_diff_without_patch_tags(self):
+        response = (
+            "Here is the patch:\n\n"
+            "--- a/src/a.py\n"
+            "+++ b/src/a.py\n"
+            "@@ -1,3 +1,3 @@\n"
+            " def f():\n"
+            "-    return 1\n"
+            "+    return 2\n"
+        )
+        result = extract_patch(response)
+        self.assertIsNotNone(result)
+        self.assertTrue(result.startswith("--- a/src/a.py"))
+        self.assertIn("+    return 2", result)
+
+    def test_extracts_raw_diff_inside_markdown_fence(self):
+        response = (
+            "```diff\n"
+            "--- a/src/a.py\n"
+            "+++ b/src/a.py\n"
+            "@@ -1,3 +1,3 @@\n"
+            " def f():\n"
+            "-    return 1\n"
+            "+    return 2\n"
+            "```\n"
+        )
+        result = extract_patch(response)
+        self.assertIsNotNone(result)
+        self.assertTrue(result.startswith("--- a/src/a.py"))
+
 
 class BuildPatchPromptTests(unittest.TestCase):
     def test_includes_issue_and_file_contents(self):

@@ -30,12 +30,16 @@ Manifest format (YAML):
 import argparse
 import json
 import os
+import random
 import sys
 import time
 from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
+
+DEFAULT_MANAGER_MODEL = "gemini-3-flash-preview"
+DEFAULT_PATCH_MODEL = "gemini-2.5-pro"
 
 
 def _check_docker() -> bool:
@@ -49,6 +53,63 @@ def _check_docker() -> bool:
     return result.returncode == 0
 
 
+def _resolve_model_config(manifest: dict) -> tuple[str, str]:
+    """Resolve retrieval and patch model names from manifest defaults/overrides."""
+    manager_model = str(manifest.get("manager_model") or DEFAULT_MANAGER_MODEL)
+    patch_model = str(manifest.get("patch_model") or DEFAULT_PATCH_MODEL)
+    return manager_model, patch_model
+
+
+def _is_transient_api_error(exc: Exception) -> bool:
+    """Return True when an API exception looks retryable."""
+    msg = str(exc).upper()
+    return any(
+        token in msg
+        for token in (
+            "429",
+            "RESOURCE_EXHAUSTED",
+            "RATE_LIMIT",
+            "503",
+            "UNAVAILABLE",
+            "DEADLINE_EXCEEDED",
+            "TIMEOUT",
+        )
+    )
+
+
+def _run_with_rate_limit_backoff(
+    callable_fn,
+    *,
+    label: str,
+    max_retries: int = 6,
+    initial_delay_s: float = 6.0,
+    backoff_multiplier: float = 2.0,
+    max_delay_s: float = 120.0,
+    jitter_s: float = 1.0,
+):
+    """
+    Run callable with retries on transient API limits/failures.
+
+    max_retries counts retry attempts after the initial call.
+    """
+    delay_s = max(initial_delay_s, 0.0)
+    for attempt in range(max_retries + 1):
+        try:
+            return callable_fn()
+        except Exception as exc:
+            should_retry = _is_transient_api_error(exc) and attempt < max_retries
+            if not should_retry:
+                raise
+            sleep_s = min(delay_s, max_delay_s) + max(0.0, random.uniform(0.0, max(0.0, jitter_s)))
+            print(
+                f"    {label} transient API error "
+                f"(attempt {attempt + 1}/{max_retries + 1}): {type(exc).__name__}; "
+                f"retrying in {sleep_s:.1f}s"
+            )
+            time.sleep(sleep_s)
+            delay_s = min(max_delay_s, max(delay_s * max(backoff_multiplier, 1.0), delay_s + 1.0))
+
+
 def _run_retrieval(
     issue: dict,
     *,
@@ -57,6 +118,7 @@ def _run_retrieval(
     rag_index,
     client,
     method: str,
+    manager_model: str,
     manager_max_turns: int,
     deterministic_config: dict,
     redact_paths: bool = True,
@@ -72,7 +134,13 @@ def _run_retrieval(
 
     if method == "gm_progressive":
         from src.manager_agent import ManagerAgent
-        agent = ManagerAgent(graph, graph_index, client, retrieval_mode="progressive")
+        agent = ManagerAgent(
+            graph,
+            graph_index,
+            client,
+            model=manager_model,
+            retrieval_mode="progressive",
+        )
         files, tokens = agent.find_relevant_files(query, max_turns=manager_max_turns)
 
     elif method == "gm_deterministic":
@@ -85,7 +153,12 @@ def _run_retrieval(
 
     elif method == "rag_progressive":
         from src.rag_baseline import RAGAgent
-        agent = RAGAgent(rag_index, client, retrieval_mode="progressive")
+        agent = RAGAgent(
+            rag_index,
+            client,
+            model=manager_model,
+            retrieval_mode="progressive",
+        )
         files, tokens = agent.find_relevant_files(query, max_turns=manager_max_turns)
 
     else:
@@ -126,9 +199,16 @@ def run_patch_pipeline(
     retrieval_method = manifest.get("retrieval_method", "gm_progressive")
     manager_max_turns = int(manifest.get("manager_max_turns", 4))
     patch_max_turns = int(manifest.get("patch_max_turns", 3))
+    manager_model, patch_model = _resolve_model_config(manifest)
     source_prefixes = manifest.get("source_prefixes") or None
     repo_name = manifest.get("repo_name", "")
     snapshot_commit = manifest.get("snapshot_commit") or None
+    rate_limit_max_retries = int(manifest.get("rate_limit_max_retries", 6))
+    rate_limit_initial_delay_s = float(manifest.get("rate_limit_initial_delay_s", 6.0))
+    rate_limit_backoff_multiplier = float(manifest.get("rate_limit_backoff_multiplier", 2.0))
+    rate_limit_max_delay_s = float(manifest.get("rate_limit_max_delay_s", 120.0))
+    rate_limit_jitter_s = float(manifest.get("rate_limit_jitter_s", 1.0))
+    per_instance_cooldown_s = float(manifest.get("per_instance_cooldown_s", 0.0))
     run_id = time.strftime("%Y%m%d_%H%M%S")
 
     results_path = Path(results_dir) / "patch_runs" / run_id
@@ -140,6 +220,8 @@ def run_patch_pipeline(
     print(f"Dataset: {dataset_name} ({split})")
     print(f"Instances: {len(instance_ids)}")
     print(f"Retrieval method: {retrieval_method}")
+    print(f"Manager model: {manager_model}")
+    print(f"Patch model: {patch_model}")
     print(f"Results dir: {results_path}")
 
     from google import genai
@@ -216,7 +298,7 @@ def run_patch_pipeline(
         }
         validate_commit_context({"graph_file_paths": set(), "setup_costs": setup_costs})
 
-        patch_agent = PatchAgent(repo_dir, client)
+        patch_agent = PatchAgent(repo_dir, client, model=patch_model)
         det_cfg = {
             "seed_k": manifest.get("deterministic_seed_k", 8),
             "depth": manifest.get("deterministic_depth", 2),
@@ -229,20 +311,43 @@ def run_patch_pipeline(
 
             # --- Retrieval ---
             t0 = time.time()
+            retrieval_error = None
             if dry_run:
                 retrieved_files = issue.get("gold_files", [])[:2]
                 retrieval_tokens = {"total_tokens": 0, "stop_reason": "dry_run"}
             else:
-                retrieved_files, retrieval_tokens = _run_retrieval(
-                    issue,
-                    graph=graph,
-                    graph_index=graph_index,
-                    rag_index=rag_index,
-                    client=client,
-                    method=retrieval_method,
-                    manager_max_turns=manager_max_turns,
-                    deterministic_config=det_cfg,
-                )
+                try:
+                    retrieved_files, retrieval_tokens = _run_with_rate_limit_backoff(
+                        lambda: _run_retrieval(
+                            issue,
+                            graph=graph,
+                            graph_index=graph_index,
+                            rag_index=rag_index,
+                            client=client,
+                            method=retrieval_method,
+                            manager_model=manager_model,
+                            manager_max_turns=manager_max_turns,
+                            deterministic_config=det_cfg,
+                        ),
+                        label=f"retrieval[{iid}]",
+                        max_retries=rate_limit_max_retries,
+                        initial_delay_s=rate_limit_initial_delay_s,
+                        backoff_multiplier=rate_limit_backoff_multiplier,
+                        max_delay_s=rate_limit_max_delay_s,
+                        jitter_s=rate_limit_jitter_s,
+                    )
+                except Exception as exc:
+                    retrieval_error = exc
+                    retrieved_files = []
+                    retrieval_tokens = {
+                        "prompt_tokens": 0,
+                        "candidate_tokens": 0,
+                        "total_tokens": 0,
+                        "tool_calls": 0,
+                        "stop_reason": f"retrieval_error:{type(exc).__name__}",
+                        "error": str(exc),
+                    }
+                    print(f"    Retrieval failed after retries: {type(exc).__name__}")
             retrieval_time = time.time() - t0
             print(f"    Retrieved: {retrieved_files}")
 
@@ -251,16 +356,48 @@ def run_patch_pipeline(
             if dry_run:
                 patch_text = None
                 patch_tokens = {"total_tokens": 0, "stop_reason": "dry_run"}
+            elif retrieval_error is not None:
+                patch_text = None
+                patch_tokens = {
+                    "prompt_tokens": 0,
+                    "candidate_tokens": 0,
+                    "total_tokens": 0,
+                    "tool_calls": 0,
+                    "stop_reason": "skipped_due_to_retrieval_error",
+                }
             else:
-                patch_text, patch_tokens = patch_agent.generate_patch(
-                    prepare_issue_text(issue.get("problem_statement", "")),
-                    retrieved_files,
-                    max_turns=patch_max_turns,
-                )
+                try:
+                    patch_text, patch_tokens = _run_with_rate_limit_backoff(
+                        lambda: patch_agent.generate_patch(
+                            prepare_issue_text(issue.get("problem_statement", "")),
+                            retrieved_files,
+                            max_turns=patch_max_turns,
+                        ),
+                        label=f"patch[{iid}]",
+                        max_retries=rate_limit_max_retries,
+                        initial_delay_s=rate_limit_initial_delay_s,
+                        backoff_multiplier=rate_limit_backoff_multiplier,
+                        max_delay_s=rate_limit_max_delay_s,
+                        jitter_s=rate_limit_jitter_s,
+                    )
+                except Exception as exc:
+                    patch_text = None
+                    patch_tokens = {
+                        "prompt_tokens": 0,
+                        "candidate_tokens": 0,
+                        "total_tokens": 0,
+                        "tool_calls": 0,
+                        "stop_reason": f"patch_error:{type(exc).__name__}",
+                        "error": str(exc),
+                    }
+                    print(f"    Patch generation failed after retries: {type(exc).__name__}")
             patch_time = time.time() - t1
 
             status = "patched" if patch_text else "no_patch"
             print(f"    Patch status: {status}")
+
+            if per_instance_cooldown_s > 0 and not dry_run:
+                time.sleep(per_instance_cooldown_s)
 
             # Save patch to disk
             if patch_text:

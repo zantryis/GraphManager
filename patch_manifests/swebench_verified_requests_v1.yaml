@@ -11,6 +11,14 @@ source_prefixes:
 retrieval_method: gm_progressive
 manager_max_turns: 4
 patch_max_turns: 3
+manager_model: gemini-3-flash-preview
+patch_model: gemini-2.5-flash
+rate_limit_max_retries: 8
+rate_limit_initial_delay_s: 8.0
+rate_limit_backoff_multiplier: 2.0
+rate_limit_max_delay_s: 180.0
+rate_limit_jitter_s: 2.0
+per_instance_cooldown_s: 2.5
 
 instance_ids:
   - psf__requests-1142

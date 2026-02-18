@@ -48,6 +48,43 @@ Patch format example:
 
 _PATCH_TAG_RE = re.compile(r"<patch>(.*?)</patch>", re.DOTALL)
 _CANNOT_PATCH_RE = re.compile(r"CANNOT_PATCH", re.IGNORECASE)
+_HUNK_HEADER_RE = re.compile(r"^@@\s+-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s+@@", re.MULTILINE)
+
+
+def _extract_raw_unified_diff(response_text: str) -> str | None:
+    """
+    Best-effort fallback when model emits raw diff without <patch> tags.
+
+    Accepts markdown-fenced or plain-text unified diffs.
+    """
+    text = (response_text or "").strip()
+    if not text:
+        return None
+
+    # Drop opening code fence language header (e.g., ```diff).
+    if text.startswith("```"):
+        first_newline = text.find("\n")
+        if first_newline != -1:
+            text = text[first_newline + 1 :].lstrip()
+
+    start = text.find("--- a/")
+    if start == -1:
+        return None
+    candidate = text[start:]
+
+    # Trim trailing markdown fence if present.
+    fence_idx = candidate.find("\n```")
+    if fence_idx != -1:
+        candidate = candidate[:fence_idx]
+
+    candidate = candidate.strip()
+    if "+++ b/" not in candidate:
+        return None
+    if not _HUNK_HEADER_RE.search(candidate):
+        return None
+    if _CANNOT_PATCH_RE.search(candidate):
+        return None
+    return candidate
 
 
 def extract_patch(response_text: str) -> str | None:
@@ -56,12 +93,15 @@ def extract_patch(response_text: str) -> str | None:
     Returns None if no patch tag found or patch is a CANNOT_PATCH signal.
     """
     match = _PATCH_TAG_RE.search(response_text)
-    if not match:
-        return None
-    content = match.group(1).strip()
-    if not content or _CANNOT_PATCH_RE.search(content):
-        return None
-    return content
+    if match:
+        content = match.group(1).strip()
+        if not content or _CANNOT_PATCH_RE.search(content):
+            return None
+        return content
+
+    # Fallback for model outputs that provide a raw unified diff without tags.
+    return _extract_raw_unified_diff(response_text)
+
 
 
 def build_patch_prompt(
@@ -179,9 +219,11 @@ class PatchAgent:
                 if response.candidates else "no_candidates"
             )
 
-            response_text = ""
-            if response.candidates and response.candidates[0].content.parts:
-                response_text = response.candidates[0].content.parts[0].text or ""
+            response_text_obj = getattr(response, "text", "")
+            response_text = response_text_obj if isinstance(response_text_obj, str) else ""
+            if (not response_text) and response.candidates and response.candidates[0].content.parts:
+                part_text = response.candidates[0].content.parts[0].text
+                response_text = part_text if isinstance(part_text, str) else ""
 
             patch = extract_patch(response_text)
             if patch is not None:
