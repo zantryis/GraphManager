@@ -1,0 +1,23 @@
+# Patch manifest: psf/requests, SWE-bench Verified
+# 8 instances — all verified instances available for this repo
+# Retrieval: gm_progressive (best F1 in retrieval evaluation)
+# Created: 2026-02-18
+
+dataset_name: SWE-bench/SWE-bench_Verified
+split: test
+repo_name: psf/requests
+source_prefixes:
+  - requests
+retrieval_method: gm_progressive
+manager_max_turns: 4
+patch_max_turns: 3
+
+instance_ids:
+  - psf__requests-1142
+  - psf__requests-1724
+  - psf__requests-1766
+  - psf__requests-1921
+  - psf__requests-2317
+  - psf__requests-2931
+  - psf__requests-5414
+  - psf__requests-6028

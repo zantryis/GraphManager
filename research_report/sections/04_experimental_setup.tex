@@ -1,0 +1,131 @@
+\section{Experimental Setup}
+\label{sec:experimental_setup}
+
+\subsection{Datasets}
+\label{sec:datasets}
+
+We draw evaluation instances from two benchmark families:
+
+\paragraph{SWE-bench} \citep{swebench2024} provides real GitHub issues paired with developer-written patches. Each instance specifies a repository, a \texttt{base\_commit} at which the issue exists, and a gold patch from which we extract gold file labels. The full dataset contains 2{,}294 test instances, 225 dev instances, and 19{,}008 training instances across 12 repositories. We use the test split for evaluation.
+
+\paragraph{SWE-PolyBench} \citep{swepolybench2025} extends repository-level evaluation to multiple programming languages (Java, JavaScript, TypeScript, Python) and provides both retrieval-metric and execution-based evaluation modes. The Verified subset contains 382 instances. We use the Python subset for cross-benchmark validation.
+
+\subsection{Repository Selection}
+\label{sec:repo_selection}
+
+We evaluate on seven repositories spanning four application domains, drawn from both SWE-bench and SWE-PolyBench:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llllr}
+\toprule
+Repository & Domain & Benchmark & Source prefix & $n$ \\
+\midrule
+\texttt{pallets/flask} & Web framework & SWE-bench & \texttt{src/flask} & 10 \\
+\texttt{psf/requests} & Networking & SWE-bench & \texttt{requests} & 10 \\
+\texttt{pytest-dev/pytest} & Testing/tooling & SWE-bench & \texttt{src/\_pytest} & 10 \\
+\texttt{tiangolo/fastapi} & Service framework & SWE-bench & \texttt{fastapi} & 10 \\
+\texttt{yt-dlp/yt-dlp} & App/CLI & SWE-PolyBench & \texttt{yt\_dlp} & 5 \\
+\texttt{langchain-ai/langchain} & Service framework & SWE-PolyBench & \texttt{libs/langchain} & 10 \\
+\texttt{keras-team/keras} & Library & SWE-PolyBench & \texttt{keras} & 10 \\
+\bottomrule
+\end{tabular}
+\caption{Repositories in the evaluation matrix. $n$ = number of issues per repository per track. Source prefix restricts graph construction and retrieval to relevant subdirectories.}
+\label{tab:repos}
+\end{table}
+
+The selection covers both small, well-structured libraries (Flask, Requests) and larger, more complex codebases (Keras, LangChain), providing diversity in graph structure and retrieval difficulty.
+
+\subsection{Issue Sampling and Manifest Pinning}
+\label{sec:issue_sampling}
+
+For each repository, we select issues using a deterministic protocol:
+\begin{enumerate}[leftmargin=1.5em]
+  \item Sweep all available splits (test, dev, train) and collect instances matching the target repository.
+  \item Deduplicate by \texttt{instance\_id}.
+  \item Select the first $n$ instances in dataset order.
+  \item Pin the resulting instance IDs in a YAML manifest with a unique \texttt{issue\_set\_id}.
+\end{enumerate}
+
+The manifest is version-controlled and used for all subsequent runs, ensuring that different methods and repeat runs are evaluated on exactly the same issue set. Example manifest IDs include \texttt{issues\_swebench\_requests\_v2\_10} and \texttt{issues\_polybench\_ytdlp\_v2\_5}.
+
+\subsection{Evaluation Tracks}
+\label{sec:eval_tracks}
+
+We report results on two parallel tracks to separate retrieval quality from amortization effects:
+
+\paragraph{Track 1: Strict commit fidelity.}
+Each issue is evaluated at its own \texttt{base\_commit}. The repository is checked out and the graph/index is rebuilt for each unique commit. This is the ``realistic conservative'' setting: it measures retrieval quality without any amortization benefit. Issues are grouped by commit to avoid redundant rebuilds when multiple issues share a commit, but in practice the commit repeat ratio is low (often 0\%) for $n=10$ samples.
+
+\paragraph{Track 2: Same-snapshot amortized.}
+All issues for a given repository are evaluated against a single fixed snapshot (a pinned commit hash). The graph and index are built once and reused for all issues. This measures the ``world-model reuse'' scenario where a pre-built structural representation serves multiple retrieval tasks. The \texttt{commit\_repeat\_ratio} and \texttt{cache\_hit\_rate} are reported to quantify the amortization opportunity.
+
+Results from the two tracks are always reported separately and never merged into a single aggregate.
+
+\subsection{Metrics}
+\label{sec:metrics}
+
+\paragraph{Retrieval quality.}
+We compute file-level precision, recall, and F1 per issue:
+\begin{equation}
+P_i = \frac{|\hat{F}_i \cap F_i^*|}{|\hat{F}_i|}, \quad
+R_i = \frac{|\hat{F}_i \cap F_i^*|}{|F_i^*|}, \quad
+F1_i = \frac{2 P_i R_i}{P_i + R_i}
+\end{equation}
+where $\hat{F}_i$ is the set of files retrieved by the method and $F_i^*$ is the gold set extracted from patch diffs. Issues that produce errors (API failures, timeouts) receive $F1 = 0$ to avoid survivorship bias. We report mean values across issues per method.
+
+\paragraph{Cost metrics.}
+For each method, we report:
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{Setup embedding tokens} ($C^{\text{setup}}$): embedding tokens consumed during index construction.
+  \item \textbf{Runtime LLM tokens} ($C^{\text{llm}}$): language model tokens consumed during per-issue retrieval.
+  \item \textbf{Query embedding tokens} ($C^{\text{qemb}}$): embedding tokens consumed during per-issue retrieval.
+  \item \textbf{Total cost tokens}: $C^{\text{setup}} + \sum_i (C_i^{\text{llm}} + C_i^{\text{qemb}})$.
+\end{itemize}
+
+\paragraph{Amortization descriptors.}
+\begin{itemize}[leftmargin=1.5em]
+  \item $\texttt{commit\_repeat\_ratio} = 1 - \frac{\text{unique base commits}}{n}$
+  \item $\texttt{cache\_hit\_rate} = \frac{\text{reused index builds}}{n}$
+\end{itemize}
+
+\subsection{Statistical Protocol}
+\label{sec:stats}
+
+To account for LLM stochasticity, each experiment cell is repeated at least 3 times with identical configurations.
+
+\paragraph{Paired analysis.}
+For each issue $i$, we compute per-issue deltas between method pairs:
+\[
+\delta_i = F1_i^{(\text{method A})} - F1_i^{(\text{method B})}
+\]
+We report the mean delta with a bootstrap 95\% confidence interval (10{,}000 resamples). A comparison is considered significant when the CI excludes zero.
+
+\paragraph{Readiness gates.}
+Results are promoted to the manuscript only when:
+\begin{enumerate}[leftmargin=1.5em]
+  \item At least 3 repeat runs are completed.
+  \item Bootstrap CIs are computed for all primary comparisons.
+  \item The error rate is below 20\% across methods.
+\end{enumerate}
+
+\subsection{Infrastructure}
+\label{sec:infrastructure}
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{Language model}: \texttt{gemini-2.0-flash} \citep{gemini2024} for all LLM-guided retrieval.
+  \item \textbf{Embedding model}: \texttt{gemini-embedding-001} for all vector embeddings.
+  \item \textbf{Vector index}: FAISS \citep{johnson2021faiss} flat inner-product index.
+  \item \textbf{AST parsing}: \texttt{tree-sitter} \citep{brunsfeld2018treesitter} with the Python grammar.
+  \item \textbf{Graph library}: NetworkX \citep{hagberg2008networkx}.
+  \item \textbf{Agent turn budget}: 4 turns per issue for both graph and RAG agents.
+\end{itemize}
+
+\subsection{Reproducibility}
+\label{sec:reproducibility}
+
+All experiment configurations are specified in versioned YAML manifests (e.g., \texttt{experiments\_matrix\_v2.yaml}) with pinned instance IDs and snapshot commits. Run outputs are archived with timestamps, and report-ready numbers are sourced from frozen artifact bundles containing raw results, aggregated summaries, and manifest metadata. The full evaluation pipeline is executable via:
+\begin{verbatim}
+./.venv/bin/python run_suite.py experiments_matrix_v2.yaml
+\end{verbatim}

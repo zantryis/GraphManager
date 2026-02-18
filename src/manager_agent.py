@@ -9,6 +9,8 @@ import re
 from google import genai
 from google.genai import types
 
+from .path_resolution import canonicalize_file_path
+
 SYSTEM_PROMPT = """You are a code navigation expert. You have access to a knowledge graph \
 of a Python repository. Your job is to identify which SOURCE FILES need to be modified to \
 resolve a given GitHub issue.
@@ -67,7 +69,7 @@ TOOL_DECLARATIONS = [
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "Relative file path in the repository (e.g., 'src/flask/app.py')",
+                    "description": "Relative file path in the repository (e.g., 'src/app.py')",
                 }
             },
             "required": ["file_path"],
@@ -89,6 +91,7 @@ MANAGER_RETRIEVAL_MODES = {
         "compact_search_results": False,
         "require_confirmed_files": False,
         "fallback_to_observed_files": True,
+        "confirmed_only_if_available": False,
     },
     "progressive": {
         "search_top_k": 5,
@@ -103,8 +106,21 @@ MANAGER_RETRIEVAL_MODES = {
         "compact_search_results": True,
         "require_confirmed_files": True,
         "fallback_to_observed_files": False,
+        "confirmed_only_if_available": True,
     },
 }
+
+
+def serialize_manager_telemetry(tokens: dict) -> dict:
+    """Build a stable manager telemetry payload from token usage state."""
+    src = tokens or {}
+    return {
+        "tool_calls": int(src.get("tool_calls", 0) or 0),
+        "tool_cache_hits": int(src.get("tool_cache_hits", 0) or 0),
+        "tool_response_chars": int(src.get("tool_response_chars", 0) or 0),
+        "tool_calls_by_name": dict(src.get("tool_calls_by_name", {}) or {}),
+        "stop_reason": str(src.get("stop_reason", "") or ""),
+    }
 
 
 class ManagerAgent:
@@ -127,6 +143,11 @@ class ManagerAgent:
             )
         self.retrieval_mode = retrieval_mode
         self.cfg = MANAGER_RETRIEVAL_MODES[retrieval_mode]
+        self._valid_files = {
+            str(node_id)
+            for node_id, node_data in self.graph.nodes(data=True)
+            if node_data.get("type") == "file" and str(node_id).endswith(".py")
+        }
         self._search_cache: dict[str, list[dict]] = {}
         self._neighbors_cache: dict[str, list[dict]] = {}
         self._file_summary_cache: dict[str, dict] = {}
@@ -140,10 +161,12 @@ class ManagerAgent:
             "prompt_tokens": 0,
             "candidate_tokens": 0,
             "total_tokens": 0,
+            "query_embedding_tokens": 0,
             "tool_calls": 0,
             "tool_cache_hits": 0,
             "tool_response_chars": 0,
             "tool_calls_by_name": {},
+            "stop_reason": "",
         }
         # Cache only within this issue's conversation to avoid cross-issue leakage.
         self._search_cache.clear()
@@ -152,7 +175,9 @@ class ManagerAgent:
         observed_files: set[str] = set()
         observed_nodes: set[str] = set()
         confirmed_files: set[str] = set()
+        file_scores: dict[str, float] = {}
         stagnant_turns = 0
+        executed_tool_calls = 0
 
         tools = types.Tool(function_declarations=TOOL_DECLARATIONS)
         config = types.GenerateContentConfig(
@@ -194,13 +219,28 @@ class ManagerAgent:
                 # Model returned text — try to parse file list
                 text = response.text or ""
                 files = self._parse_files_from_response(text)
-                if files:
-                    return self._finalize_file_list(files, confirmed_files), token_usage
+                if files and executed_tool_calls > 0:
+                    return self._finalize_file_list(
+                        files,
+                        confirmed_files,
+                        observed_files,
+                        file_scores,
+                    ), self._finalize_usage(token_usage, stop_reason="sufficient_confidence")
                 if self.cfg["require_confirmed_files"] and confirmed_files:
-                    return self._finalize_file_list(sorted(confirmed_files), confirmed_files), token_usage
+                    return self._finalize_file_list(
+                        sorted(confirmed_files),
+                        confirmed_files,
+                        observed_files,
+                        file_scores,
+                    ), self._finalize_usage(token_usage, stop_reason="sufficient_confidence")
                 if self.cfg["fallback_to_observed_files"] and observed_files:
-                    return self._finalize_file_list(sorted(observed_files), confirmed_files), token_usage
-                return [], token_usage
+                    return self._finalize_file_list(
+                        sorted(observed_files),
+                        confirmed_files,
+                        observed_files,
+                        file_scores,
+                    ), self._finalize_usage(token_usage, stop_reason="sufficient_confidence")
+                return [], self._finalize_usage(token_usage, stop_reason="budget")
 
             # Process function calls
             contents.append(candidate.content)
@@ -212,14 +252,17 @@ class ManagerAgent:
             for fc in function_calls:
                 args = dict(fc.args)
                 key = (fc.name, json.dumps(args, sort_keys=True))
+                usage_delta = {"query_embedding_tokens": 0}
                 if key in seen_turn_calls:
                     result = {"skipped_duplicate_call": True, "name": fc.name}
                 elif executed_calls >= self.cfg["max_tool_calls_per_turn"]:
                     result = {"tool_call_limit_reached": self.cfg["max_tool_calls_per_turn"]}
                 else:
-                    result = self._execute_tool(fc.name, args)
+                    result, usage_delta = self._execute_tool(fc.name, args)
+                    token_usage["query_embedding_tokens"] += int(usage_delta.get("query_embedding_tokens", 0))
                     seen_turn_calls.add(key)
                     executed_calls += 1
+                    executed_tool_calls += 1
 
                 token_usage["tool_calls"] += 1
                 token_usage["tool_calls_by_name"][fc.name] = token_usage["tool_calls_by_name"].get(fc.name, 0) + 1
@@ -227,12 +270,15 @@ class ManagerAgent:
                     token_usage["tool_cache_hits"] += 1
                 token_usage["tool_response_chars"] += len(json.dumps(result, ensure_ascii=True))
 
-                if self._record_observed(result, observed_files, observed_nodes):
+                if self._record_observed(result, observed_files, observed_nodes, file_scores):
                     turn_new_data = True
                 if self.cfg["require_confirmed_files"] and fc.name == "get_file_summary" and isinstance(result, dict):
                     file_path = result.get("file")
-                    if isinstance(file_path, str) and file_path.endswith(".py"):
-                        confirmed_files.add(file_path)
+                    if isinstance(file_path, str):
+                        canonical = self._canonicalize_candidate_file(file_path)
+                        if canonical:
+                            confirmed_files.add(canonical)
+                            file_scores[canonical] = file_scores.get(canonical, 0.0) + 1.0
                 response_parts.append(
                     types.Part.from_function_response(
                         name=fc.name,
@@ -249,30 +295,60 @@ class ManagerAgent:
 
             if stagnant_turns >= self.cfg["stagnation_limit"]:
                 if self.cfg["require_confirmed_files"] and confirmed_files:
-                    return self._finalize_file_list(sorted(confirmed_files), confirmed_files), token_usage
+                    return self._finalize_file_list(
+                        sorted(confirmed_files),
+                        confirmed_files,
+                        observed_files,
+                        file_scores,
+                    ), self._finalize_usage(token_usage, stop_reason="budget")
                 if self.cfg["fallback_to_observed_files"] and observed_files:
-                    return self._finalize_file_list(sorted(observed_files), confirmed_files), token_usage
+                    return self._finalize_file_list(
+                        sorted(observed_files),
+                        confirmed_files,
+                        observed_files,
+                        file_scores,
+                    ), self._finalize_usage(token_usage, stop_reason="budget")
 
         # If we exhausted turns, try to extract files from the last response
         if self.cfg["require_confirmed_files"] and confirmed_files:
-            return self._finalize_file_list(sorted(confirmed_files), confirmed_files), token_usage
+            return self._finalize_file_list(
+                sorted(confirmed_files),
+                confirmed_files,
+                observed_files,
+                file_scores,
+            ), self._finalize_usage(token_usage, stop_reason="max_turns")
         if self.cfg["fallback_to_observed_files"] and observed_files:
-            return self._finalize_file_list(sorted(observed_files), confirmed_files), token_usage
-        return [], token_usage
+            return self._finalize_file_list(
+                sorted(observed_files),
+                confirmed_files,
+                observed_files,
+                file_scores,
+            ), self._finalize_usage(token_usage, stop_reason="max_turns")
+        return [], self._finalize_usage(token_usage, stop_reason="max_turns")
 
-    def _execute_tool(self, name: str, args: dict):
-        """Execute a tool call and return the result."""
+    def _finalize_usage(self, token_usage: dict, stop_reason: str) -> dict:
+        finalized = dict(token_usage)
+        finalized["stop_reason"] = stop_reason
+        finalized["manager_telemetry"] = serialize_manager_telemetry(finalized)
+        return finalized
+
+    def _execute_tool(self, name: str, args: dict) -> tuple[object, dict]:
+        """Execute a tool call and return (result, usage delta)."""
         if name == "search_nodes":
             query = str(args.get("query", "")).strip()
             cache_key = query.lower()
             if cache_key in self._search_cache:
-                return {
+                return ({
                     "cached": True,
                     "tool": name,
                     "key": cache_key,
                     "message": "Result already returned earlier in this conversation.",
-                }
-            raw_results = self.index.search(query, top_k=self.cfg["search_top_k"]) if query else []
+                }, {"query_embedding_tokens": 0})
+            search_outcome = self.index.search(query, top_k=self.cfg["search_top_k"]) if query else {
+                "results": [],
+                "query_embedding_tokens": 0,
+            }
+            raw_results = search_outcome.get("results", [])
             if self.cfg["compact_search_results"]:
                 results = []
                 for item in raw_results:
@@ -282,38 +358,40 @@ class ManagerAgent:
                         "type": item.get("type", ""),
                         "file": item.get("file", ""),
                         "score": round(float(item.get("score", 0.0)), 4),
-                        "docstring": item.get("docstring", "")[:self.cfg["max_neighbor_docstring_chars"]],
                     })
             else:
                 results = raw_results
             self._search_cache[cache_key] = results
-            return results
+            return (
+                results,
+                {"query_embedding_tokens": int(search_outcome.get("query_embedding_tokens", 0))},
+            )
         elif name == "get_neighbors":
             node_id = str(args.get("node_id", "")).strip()
             if node_id in self._neighbors_cache:
-                return {
+                return ({
                     "cached": True,
                     "tool": name,
                     "key": node_id,
                     "message": "Result already returned earlier in this conversation.",
-                }
+                }, {"query_embedding_tokens": 0})
             result = self._get_neighbors(node_id)
             self._neighbors_cache[node_id] = result
-            return result
+            return result, {"query_embedding_tokens": 0}
         elif name == "get_file_summary":
             file_path = str(args.get("file_path", "")).strip()
             if file_path in self._file_summary_cache:
-                return {
+                return ({
                     "cached": True,
                     "tool": name,
                     "key": file_path,
                     "message": "Result already returned earlier in this conversation.",
-                }
+                }, {"query_embedding_tokens": 0})
             result = self._get_file_summary(file_path)
             self._file_summary_cache[file_path] = result
-            return result
+            return result, {"query_embedding_tokens": 0}
         else:
-            return {"error": f"Unknown tool: {name}"}
+            return {"error": f"Unknown tool: {name}"}, {"query_embedding_tokens": 0}
 
     def _get_neighbors(self, node_id: str) -> list[dict]:
         """Get all nodes connected to a given node."""
@@ -321,13 +399,6 @@ class ManagerAgent:
             return [{"error": f"Node '{node_id}' not found in graph"}]
 
         neighbors = []
-
-        def file_rank(path: str) -> int:
-            if path.startswith("src/flask/"):
-                return 0
-            if path.startswith("src/"):
-                return 1
-            return 2
 
         # Outgoing edges
         for _, target, data in self.graph.out_edges(node_id, data=True):
@@ -341,7 +412,7 @@ class ManagerAgent:
                 "type": target_data.get("type", ""),
                 "file": file_path,
                 "docstring": target_data.get("docstring", "")[:self.cfg["max_neighbor_docstring_chars"]],
-                "_rank": (file_rank(file_path), 0),
+                "_rank": (0, file_path, str(target)),
             })
         # Incoming edges
         for source, _, data in self.graph.in_edges(node_id, data=True):
@@ -355,7 +426,7 @@ class ManagerAgent:
                 "type": source_data.get("type", ""),
                 "file": file_path,
                 "docstring": source_data.get("docstring", "")[:self.cfg["max_neighbor_docstring_chars"]],
-                "_rank": (file_rank(file_path), 1),
+                "_rank": (1, file_path, str(source)),
             })
 
         neighbors.sort(key=lambda item: (item["_rank"], item.get("node_id", "")))
@@ -412,7 +483,13 @@ class ManagerAgent:
         definitions.sort(key=lambda item: item.get("name", ""))
         return {"file": file_path, "definitions": definitions[:self.cfg["max_definitions_return"]]}
 
-    def _record_observed(self, result, observed_files: set[str], observed_nodes: set[str]) -> bool:
+    def _record_observed(
+        self,
+        result,
+        observed_files: set[str],
+        observed_nodes: set[str],
+        file_scores: dict[str, float],
+    ) -> bool:
         """Track files and nodes surfaced by tool outputs; returns True if any new item is found."""
         changed = False
 
@@ -424,9 +501,15 @@ class ManagerAgent:
                     observed_nodes.add(node_id)
                     changed = True
                 file_path = value.get("file")
-                if isinstance(file_path, str) and file_path.endswith(".py") and file_path not in observed_files:
-                    observed_files.add(file_path)
-                    changed = True
+                if isinstance(file_path, str):
+                    canonical = self._canonicalize_candidate_file(file_path)
+                    if canonical and canonical not in observed_files:
+                        observed_files.add(canonical)
+                        changed = True
+                    if canonical:
+                        raw_score = value.get("score")
+                        score = float(raw_score) if isinstance(raw_score, (int, float)) else 0.05
+                        file_scores[canonical] = file_scores.get(canonical, 0.0) + score
                 for nested in value.values():
                     visit(nested)
             elif isinstance(value, list):
@@ -452,27 +535,47 @@ class ManagerAgent:
         paths = re.findall(r'[\w/.-]+\.py', text)
         return list(dict.fromkeys(paths))  # deduplicate preserving order
 
-    def _finalize_file_list(self, files: list[str], confirmed_files: set[str]) -> list[str]:
-        """Deduplicate, prioritize confirmed files, and cap output size."""
+    def _finalize_file_list(
+        self,
+        files: list[str],
+        confirmed_files: set[str],
+        observed_files: set[str],
+        file_scores: dict[str, float] | None = None,
+    ) -> list[str]:
+        """Deduplicate, enforce grounding, prioritize confirmed files, and cap output size."""
+        scores = file_scores or {}
         cleaned = []
         seen = set()
         for file_path in files:
             if not isinstance(file_path, str):
                 continue
-            normalized = file_path.strip()
-            if not normalized.endswith(".py"):
+            canonical = self._canonicalize_candidate_file(file_path)
+            if not canonical:
                 continue
-            if normalized in seen:
+            if canonical not in observed_files and canonical not in confirmed_files:
                 continue
-            seen.add(normalized)
-            cleaned.append(normalized)
+            if canonical in seen:
+                continue
+            seen.add(canonical)
+            cleaned.append(canonical)
+
+        if self.cfg.get("confirmed_only_if_available") and confirmed_files:
+            cleaned = [f for f in cleaned if f in confirmed_files]
+            if not cleaned:
+                cleaned = sorted(confirmed_files)
 
         prioritized = sorted(
             cleaned,
             key=lambda f: (
                 0 if f in confirmed_files else 1,
-                0 if f.startswith("src/flask/") else 1,
+                -float(scores.get(f, 0.0)),
                 f,
             ),
         )
         return prioritized[:self.cfg["max_return_files"]]
+
+    def _canonicalize_candidate_file(self, file_path: str) -> str | None:
+        """Resolve a model/tool file path to a canonical in-repo python file path."""
+        if not isinstance(file_path, str):
+            return None
+        return canonicalize_file_path(file_path, self._valid_files)

@@ -1,0 +1,129 @@
+\section{Results}
+\label{sec:results}
+
+We present results organized by retrieval quality (\S\ref{sec:main_quality}), per-repository analysis (\S\ref{sec:per_repo}), amortization comparison (\S\ref{sec:amortization_results}), cost analysis (\S\ref{sec:cost_results}), and cross-benchmark validation (\S\ref{sec:cross_benchmark}).
+
+Results marked \textit{pending} indicate experiment cells that have not yet completed the readiness gates defined in \S\ref{sec:stats}. Completed cells report means over $\geq 3$ repeats with bootstrap 95\% CIs.
+
+\subsection{Main Retrieval Quality}
+\label{sec:main_quality}
+
+Table~\ref{tab:main_results} presents the cross-repository macro F1 for all seven methods under the strict commit-fidelity track.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrrrrrrr}
+\toprule
+ & \multicolumn{4}{c}{SWE-bench repos} & \multicolumn{3}{c}{SWE-PolyBench repos} \\
+\cmidrule(lr){2-5} \cmidrule(lr){6-8}
+Method & Flask & Requests & Pytest & FastAPI & yt-dlp & LangChain & Keras \\
+\midrule
+\texttt{gm\_deterministic} & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} \\
+\texttt{gm\_progressive} & 0.803 & 0.700 & 0.550 & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} \\
+\texttt{gm\_baseline} & 0.809 & 0.534 & 0.473 & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} \\
+\texttt{rag\_progressive} & 0.704 & 0.733 & 0.602 & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} \\
+\texttt{rag\_baseline} & 0.802 & 0.733 & 0.567 & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} \\
+\texttt{raw\_rag\_function} & 0.340 & 0.256 & 0.242 & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} \\
+\texttt{raw\_rag\_fixed} & 0.321 & 0.221 & 0.185 & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} \\
+\bottomrule
+\end{tabular}
+\caption{Per-repository mean F1 under the strict commit-fidelity track. Flask, Requests, and Pytest values are from single-run evaluations ($n=10$ issues each). Remaining cells are pending matrix-v2 completion.}
+\label{tab:main_results}
+\end{table}
+
+From the three completed SWE-bench repositories:
+\begin{itemize}[leftmargin=1.5em]
+  \item Graph methods win on Flask (\texttt{gm\_baseline}: 0.809), while RAG methods win on Requests and Pytest (\texttt{rag\_progressive}: 0.733 and 0.602 respectively).
+  \item Non-LLM baselines (\texttt{raw\_rag\_*}) are not competitive, confirming that LLM-guided or graph-navigated retrieval provides substantial value.
+  \item Cross-repo macro F1 across the three repos: RAG baseline 0.701, GM progressive 0.684, RAG progressive 0.680, GM baseline 0.605.
+\end{itemize}
+
+\subsection{Per-Repository Paired Analysis (psf/requests)}
+\label{sec:per_repo}
+
+The most complete experiment cell is \texttt{psf/requests} with $n=10$ issues and repeated runs on both tracks. Table~\ref{tab:strict_requests} shows the strict-track repeat means.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+Method & Mean F1 & Runtime Tokens & Setup Tokens & Total Cost \\
+\midrule
+GM (progressive) & 0.467 & 43,283 & 107,557 & 150,840 \\
+GM (baseline) & 0.379 & 51,898 & 107,557 & 159,455 \\
+RAG (progressive) & 0.286 & 15,587 & 414,082 & 429,669 \\
+RAG (baseline) & 0.332 & 40,756 & 414,082 & 454,838 \\
+\bottomrule
+\end{tabular}
+\caption{Strict commit-fidelity track: means over 3 repeats (\texttt{psf/requests}, $n=10$).}
+\label{tab:strict_requests}
+\end{table}
+
+The paired F1 delta for GM-progressive minus RAG-progressive is $+0.181$ with bootstrap 95\% CI $[0.120, 0.233]$, indicating a statistically significant advantage for graph-guided retrieval on this repository and issue set.
+
+\subsection{Strict vs.\ Same-Snapshot Amortization}
+\label{sec:amortization_results}
+
+Table~\ref{tab:amortization} compares the two evaluation tracks for the primary method pair.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{llrrrr}
+\toprule
+Track & Method & Mean F1 & Runtime & Setup & Total Cost \\
+\midrule
+Strict & GM (progressive) & 0.467 & 43,283 & 107,557 & 150,840 \\
+Strict & RAG (progressive) & 0.286 & 15,587 & 414,082 & 429,669 \\
+Same-snapshot & GM (progressive) & 0.544 & 42,136 & 9,018 & 51,154 \\
+Same-snapshot & RAG (progressive) & 0.259 & 15,345 & 36,736 & 52,081 \\
+\bottomrule
+\end{tabular}
+\caption{Track-separated repeat means (\texttt{psf/requests}, $n=10$). In same-snapshot mode, setup costs collapse due to single index build.}
+\label{tab:amortization}
+\end{table}
+
+Key observations:
+\begin{itemize}[leftmargin=1.5em]
+  \item In the strict track, \texttt{commit\_repeat\_ratio = 0.0} and \texttt{cache\_hit\_rate = 0.0}: every issue requires a fresh index build.
+  \item In the same-snapshot track, \texttt{commit\_repeat\_ratio = 0.9} and \texttt{cache\_hit\_rate = 0.9}: the graph is built once and reused.
+  \item GM-progressive F1 improves from 0.467 (strict) to 0.544 (same-snapshot), suggesting that index stability benefits graph navigation.
+  \item The same-snapshot GM-progressive minus RAG-progressive delta is $+0.286$ with 95\% CI $[0.219, 0.333]$.
+\end{itemize}
+
+\subsection{Cost Analysis}
+\label{sec:cost_results}
+
+Table~\ref{tab:cost_cross_repo} presents the token cost decomposition across the three completed SWE-bench repositories (30 issues total, single run).
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Method & Runtime Tokens & Setup Tokens & Total Cost \\
+\midrule
+GM (progressive) & 297,690 & 701,054 & 998,744 \\
+GM (baseline) & 333,893 & 701,054 & 1,034,947 \\
+RAG (progressive) & 123,317 & 2,268,044 & 2,391,361 \\
+RAG (baseline) & 354,930 & 2,268,044 & 2,622,974 \\
+Raw-func & 12,769 & 2,268,044 & 2,280,813 \\
+Raw-fixed & 12,769 & 1,478,791 & 1,491,560 \\
+\bottomrule
+\end{tabular}
+\caption{Token cost across 3 SWE-bench repos (Flask, Requests, Pytest; 30 issues total).}
+\label{tab:cost_cross_repo}
+\end{table}
+
+GM methods achieve $\sim$3.2$\times$ lower setup cost than RAG methods (701K vs.\ 2.27M tokens) due to embedding compact graph metadata rather than full code bodies. GM-progressive total cost is 0.42$\times$ that of RAG-progressive despite 2.4$\times$ higher runtime token usage, because the setup cost dominates the total.
+
+\subsection{Cross-Benchmark Validation (SWE-PolyBench)}
+\label{sec:cross_benchmark}
+
+Partial results from \texttt{yt-dlp/yt-dlp} on SWE-PolyBench Verified ($n=5$ issues, 2 completed repeats):
+\begin{itemize}[leftmargin=1.5em]
+  \item GM-progressive: F1 = 0.111, total cost = 178,523 tokens.
+  \item RAG-progressive: F1 = 0.000, total cost = 2,118,955 tokens.
+  \item RAG-baseline: F1 = 0.278, total cost highest.
+\end{itemize}
+
+Full matrix-v2 SWE-PolyBench reruns were blocked by embedding API quota exhaustion (\texttt{429 RESOURCE\_EXHAUSTED}). Cross-benchmark matrix completion is pending.

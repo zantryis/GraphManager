@@ -21,6 +21,8 @@ from google import genai
 from google.genai import types
 from tree_sitter import Language, Parser
 
+from .path_resolution import canonicalize_file_path
+
 PY_LANGUAGE = Language(tspython.language())
 
 RAG_AGENT_SYSTEM_PROMPT = """You are a code navigation expert. You have access to a vector \
@@ -163,11 +165,12 @@ class RAGIndex:
             for prefix in self.include_prefixes
         )
 
-    def search(self, query: str, top_k: int = 20) -> list[dict]:
+    def search(self, query: str, top_k: int = 20) -> dict:
         """Search for chunks matching a query."""
         if self.index is None:
-            return []
+            return {"results": [], "query_embedding_tokens": 0}
 
+        query_embedding_tokens = max(len(query.strip()) // 4, 0) if query else 0
         result = self.client.models.embed_content(
             model="gemini-embedding-001",
             contents=[query],
@@ -195,7 +198,10 @@ class RAGIndex:
                 "end_line": chunk.get("end_line", 0),
                 "score": float(score),
             })
-        return results
+        return {
+            "results": results,
+            "query_embedding_tokens": query_embedding_tokens,
+        }
 
     def _chunk_by_function(self, rel_path: str, source: str):
         """Split a file into chunks at function/class boundaries using tree-sitter."""
@@ -307,7 +313,8 @@ class RawRAG:
 
     def find_relevant_files(self, issue_text: str, top_k: int = 20) -> tuple[list[str], dict]:
         """Return files from top-k chunks. Token cost = embedding the query only."""
-        results = self.index.search(issue_text, top_k=top_k)
+        search_outcome = self.index.search(issue_text, top_k=top_k)
+        results = search_outcome.get("results", [])
         # Extract unique files in order of first appearance (highest relevance first)
         seen = set()
         files = []
@@ -317,13 +324,12 @@ class RawRAG:
                 seen.add(f)
                 files.append(f)
 
-        # Token cost: just the query embedding
-        query_tokens = len(issue_text) // 4
+        query_tokens = int(search_outcome.get("query_embedding_tokens", 0))
         token_usage = {
             "prompt_tokens": 0,
             "candidate_tokens": 0,
             "total_tokens": 0,
-            "embedding_tokens": query_tokens,
+            "query_embedding_tokens": query_tokens,
         }
         return files, token_usage
 
@@ -348,6 +354,7 @@ class RAGAgent:
             )
         self.retrieval_mode = retrieval_mode
         self.cfg = RAG_RETRIEVAL_MODES[retrieval_mode]
+        self._valid_files = {str(chunk.get("file", "")) for chunk in self.rag_index.chunks if chunk.get("file")}
         self._search_cache: dict[str, list[dict]] = {}
 
     def find_relevant_files(self, issue_text: str, max_turns: int = 10) -> tuple[list[str], dict]:
@@ -356,6 +363,7 @@ class RAGAgent:
             "prompt_tokens": 0,
             "candidate_tokens": 0,
             "total_tokens": 0,
+            "query_embedding_tokens": 0,
             "tool_calls": 0,
             "tool_cache_hits": 0,
             "tool_response_chars": 0,
@@ -363,7 +371,9 @@ class RAGAgent:
         }
         self._search_cache.clear()
         observed_files: set[str] = set()
+        file_scores: dict[str, float] = {}
         stagnant_turns = 0
+        executed_tool_calls = 0
 
         tools = types.Tool(function_declarations=[RAG_TOOL_DECLARATION])
         config = types.GenerateContentConfig(
@@ -401,10 +411,14 @@ class RAGAgent:
             if not function_calls:
                 text = response.text or ""
                 files = self._parse_files_from_response(text)
-                if files:
-                    return self._finalize_file_list(files), token_usage
+                if files and executed_tool_calls > 0:
+                    return self._finalize_file_list(files, observed_files, file_scores), token_usage
                 if self.cfg["fallback_to_observed_files"] and observed_files:
-                    return self._finalize_file_list(sorted(observed_files)), token_usage
+                    return self._finalize_file_list(
+                        sorted(observed_files),
+                        observed_files,
+                        file_scores,
+                    ), token_usage
                 return [], token_usage
 
             contents.append(candidate.content)
@@ -429,7 +443,11 @@ class RAGAgent:
                     }
                     seen_turn_queries.add(norm_query)
                 else:
-                    raw_results = self.rag_index.search(query, top_k=self.cfg["search_top_k"])
+                    search_outcome = self.rag_index.search(query, top_k=self.cfg["search_top_k"])
+                    raw_results = search_outcome.get("results", [])
+                    token_usage["query_embedding_tokens"] += int(
+                        search_outcome.get("query_embedding_tokens", 0)
+                    )
                     if self.cfg["compact_results"]:
                         results = []
                         for item in raw_results:
@@ -439,20 +457,20 @@ class RAGAgent:
                                 "start_line": item.get("start_line", 0),
                                 "end_line": item.get("end_line", 0),
                                 "score": round(float(item.get("score", 0.0)), 4),
-                                "text": item.get("text", "")[:self.cfg["max_snippet_chars"]],
                             })
                     else:
                         results = raw_results
                     self._search_cache[norm_query] = results
                     seen_turn_queries.add(norm_query)
                     executed_calls += 1
+                    executed_tool_calls += 1
 
                 token_usage["tool_calls"] += 1
                 token_usage["tool_calls_by_name"][fc.name] = token_usage["tool_calls_by_name"].get(fc.name, 0) + 1
                 if isinstance(results, dict) and results.get("cached"):
                     token_usage["tool_cache_hits"] += 1
                 token_usage["tool_response_chars"] += len(json.dumps(results, ensure_ascii=True))
-                if self._record_observed_files(results, observed_files):
+                if self._record_observed_files(results, observed_files, file_scores):
                     turn_new_data = True
 
                 response_parts.append(
@@ -473,10 +491,18 @@ class RAGAgent:
                 and self.cfg["fallback_to_observed_files"]
                 and observed_files
             ):
-                return self._finalize_file_list(sorted(observed_files)), token_usage
+                return self._finalize_file_list(
+                    sorted(observed_files),
+                    observed_files,
+                    file_scores,
+                ), token_usage
 
         if self.cfg["fallback_to_observed_files"] and observed_files:
-            return self._finalize_file_list(sorted(observed_files)), token_usage
+            return self._finalize_file_list(
+                sorted(observed_files),
+                observed_files,
+                file_scores,
+            ), token_usage
         return [], token_usage
 
     def _parse_files_from_response(self, text: str) -> list[str]:
@@ -491,7 +517,12 @@ class RAGAgent:
         paths = re.findall(r'[\w/.-]+\.py', text)
         return list(dict.fromkeys(paths))
 
-    def _record_observed_files(self, result, observed_files: set[str]) -> bool:
+    def _record_observed_files(
+        self,
+        result,
+        observed_files: set[str],
+        file_scores: dict[str, float],
+    ) -> bool:
         """Track files surfaced by tool outputs; returns True if any new file is found."""
         changed = False
 
@@ -499,9 +530,15 @@ class RAGAgent:
             nonlocal changed
             if isinstance(value, dict):
                 file_path = value.get("file")
-                if isinstance(file_path, str) and file_path.endswith(".py") and file_path not in observed_files:
-                    observed_files.add(file_path)
-                    changed = True
+                if isinstance(file_path, str):
+                    canonical = self._canonicalize_candidate_file(file_path)
+                    if canonical and canonical not in observed_files:
+                        observed_files.add(canonical)
+                        changed = True
+                    if canonical:
+                        raw_score = value.get("score")
+                        score = float(raw_score) if isinstance(raw_score, (int, float)) else 0.05
+                        file_scores[canonical] = file_scores.get(canonical, 0.0) + score
                 for nested in value.values():
                     visit(nested)
             elif isinstance(value, list):
@@ -511,23 +548,35 @@ class RAGAgent:
         visit(result)
         return changed
 
-    def _finalize_file_list(self, files: list[str]) -> list[str]:
-        """Deduplicate and cap output size."""
+    def _finalize_file_list(
+        self,
+        files: list[str],
+        observed_files: set[str],
+        file_scores: dict[str, float] | None = None,
+    ) -> list[str]:
+        """Deduplicate, enforce grounding, and cap output size."""
+        scores = file_scores or {}
         cleaned = []
         seen = set()
         for file_path in files:
-            if not isinstance(file_path, str):
+            canonical = self._canonicalize_candidate_file(file_path)
+            if not canonical:
                 continue
-            normalized = file_path.strip()
-            if not normalized.endswith(".py"):
+            if canonical not in observed_files:
                 continue
-            if normalized in seen:
+            if canonical in seen:
                 continue
-            seen.add(normalized)
-            cleaned.append(normalized)
+            seen.add(canonical)
+            cleaned.append(canonical)
 
         prioritized = sorted(
             cleaned,
-            key=lambda f: (0 if f.startswith("src/flask/") else 1, f),
+            key=lambda f: (-float(scores.get(f, 0.0)), f),
         )
         return prioritized[:self.cfg["max_return_files"]]
+
+    def _canonicalize_candidate_file(self, file_path: str) -> str | None:
+        """Resolve a model/tool file path to a canonical in-index python file path."""
+        if not isinstance(file_path, str):
+            return None
+        return canonicalize_file_path(file_path, self._valid_files)

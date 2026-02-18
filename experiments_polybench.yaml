@@ -1,0 +1,20 @@
+# SWE-PolyBench retrieval-first starter suite
+# Run with: ./.venv/bin/python run_suite.py experiments_polybench.yaml
+
+suite: polybench-retrieval-v1
+description: >
+  Retrieval-first pilot on SWE-PolyBench Verified (Python repo subset).
+  This is a small validation slice to confirm adapter + evaluation plumbing.
+
+defaults:
+  task_family: swe-polybench
+  dataset_name: AmazonScience/SWE-PolyBench_Verified
+  n_issues: 3
+  max_turns: 4
+  evaluation_track: strict_commit_fidelity
+  redact_paths_in_issue_text: true
+
+experiments:
+  - repo: yt-dlp/yt-dlp
+    # Keep broad indexing for first validation run.
+    source_prefixes: null

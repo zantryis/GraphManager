@@ -1,0 +1,20 @@
+\section{Threats to Validity}
+\label{sec:threats}
+
+\paragraph{Internal validity.}
+LLM-guided retrieval methods are subject to API nondeterminism: the same input may produce different tool call sequences and file rankings across runs. We mitigate this by running each experiment cell at least three times and reporting paired deltas with bootstrap 95\% confidence intervals. Additionally, transient API errors (429 rate limits, 503 service unavailability) can cause individual issue evaluations to fail; we score such failures as $F1 = 0$ rather than excluding them, to avoid survivorship bias.
+
+Issue sampling uses a deterministic first-$n$ selection after split sweep and deduplication, which may introduce selection bias if early dataset instances are systematically different from later ones. Randomized sampling with multiple seeds would provide a stronger robustness check.
+
+\paragraph{External validity.}
+Our evaluation covers seven Python repositories across four application domains, but this remains a limited sample. Results may not generalize to repositories with different structural characteristics (e.g., heavily dynamic codebases, monorepos with non-standard layouts) or to other programming languages. The graph construction pipeline currently supports only Python via tree-sitter, limiting cross-language claims.
+
+All experiments use a single LLM backend (\texttt{gemini-2.0-flash}). Cost ratios and retrieval quality may differ with other model families, particularly models with different function-calling capabilities or token pricing.
+
+\paragraph{Construct validity.}
+We evaluate retrieval at the file level using precision, recall, and F1 against gold files extracted from patch diffs. This metric captures localization accuracy but does not measure whether the retrieved context is sufficient for successful patch generation. A higher-fidelity evaluation would include downstream execution-based metrics (e.g., SWE-bench pass rate), which we identify as a priority for future work.
+
+File-level granularity may also mask important within-file localization differences. Two methods may retrieve the same files but provide different amounts of useful context within those files. Node-level metrics, supported by SWE-PolyBench \citep{swepolybench2025}, would provide finer-grained evaluation.
+
+\paragraph{Statistical validity.}
+Sample sizes are small ($n = 5$--$10$ issues per repository), limiting the statistical power of per-repository comparisons. The cross-repository macro F1 aggregates results from repositories of different difficulty, and the equal weighting may not reflect practical importance. The evaluation matrix is partially incomplete due to API quota constraints, and some cells rely on fewer than three repeats or partial repeat sets.

@@ -1,0 +1,304 @@
+# Evaluation matrix V2: cross-benchmark, cross-domain, manifest-pinned.
+# Run with: ./.venv/bin/python run_suite.py experiments_matrix_v2.yaml
+
+suite: evaluation-matrix-v2
+
+description: >
+  Cross-benchmark retrieval matrix with strict and same-snapshot tracks.
+  Each cell is manifest-pinned via explicit instance_ids, issue_set_id, and
+  snapshot commit pins for amortized runs.
+
+defaults:
+  manager_max_turns: 4
+  rag_max_turns: 4
+  repeats: 3
+  redact_paths_in_issue_text: true
+  seed: 17
+  notes: matrix-v2
+
+experiments:
+  # ===== SWE-bench =====
+  # Web framework
+  - repo: pallets/flask
+    domain: web_framework
+    task_family: swe-bench
+    dataset_name: SWE-bench/SWE-bench
+    source_prefixes: [src/flask]
+    n_issues: 10
+    issue_set_id: issues_swebench_flask_v2_10
+    instance_ids:
+      - pallets__flask-4045
+      - pallets__flask-4074
+      - pallets__flask-4160
+      - pallets__flask-4169
+      - pallets__flask-4544
+      - pallets__flask-4575
+      - pallets__flask-4642
+      - pallets__flask-4935
+      - pallets__flask-4992
+      - pallets__flask-5014
+    evaluation_track: strict_commit_fidelity
+
+  - repo: pallets/flask
+    domain: web_framework
+    task_family: swe-bench
+    dataset_name: SWE-bench/SWE-bench
+    source_prefixes: [src/flask]
+    n_issues: 10
+    issue_set_id: issues_swebench_flask_v2_10
+    instance_ids:
+      - pallets__flask-4045
+      - pallets__flask-4074
+      - pallets__flask-4160
+      - pallets__flask-4169
+      - pallets__flask-4544
+      - pallets__flask-4575
+      - pallets__flask-4642
+      - pallets__flask-4935
+      - pallets__flask-4992
+      - pallets__flask-5014
+    evaluation_track: same_snapshot_amortized
+    snapshot_commit: d8c37f43724cd9fb0870f77877b7c4c7e38a19e0
+
+  # Networking library
+  - repo: psf/requests
+    domain: networking
+    task_family: swe-bench
+    dataset_name: SWE-bench/SWE-bench
+    source_prefixes: [requests]
+    n_issues: 10
+    issue_set_id: issues_swebench_requests_v2_10
+    instance_ids:
+      - psf__requests-1142
+      - psf__requests-1327
+      - psf__requests-1339
+      - psf__requests-1376
+      - psf__requests-1537
+      - psf__requests-1635
+      - psf__requests-1657
+      - psf__requests-1689
+      - psf__requests-1713
+      - psf__requests-1724
+    evaluation_track: strict_commit_fidelity
+
+  - repo: psf/requests
+    domain: networking
+    task_family: swe-bench
+    dataset_name: SWE-bench/SWE-bench
+    source_prefixes: [requests]
+    n_issues: 10
+    issue_set_id: issues_swebench_requests_v2_10
+    instance_ids:
+      - psf__requests-1142
+      - psf__requests-1327
+      - psf__requests-1339
+      - psf__requests-1376
+      - psf__requests-1537
+      - psf__requests-1635
+      - psf__requests-1657
+      - psf__requests-1689
+      - psf__requests-1713
+      - psf__requests-1724
+    evaluation_track: same_snapshot_amortized
+    snapshot_commit: 22623bd8c265b78b161542663ee980738441c307
+
+  # Testing/tooling
+  - repo: pytest-dev/pytest
+    domain: testing_tooling
+    task_family: swe-bench
+    dataset_name: SWE-bench/SWE-bench
+    source_prefixes: [src/_pytest, src/pytest]
+    n_issues: 10
+    issue_set_id: issues_swebench_pytest_v2_10
+    instance_ids:
+      - pytest-dev__pytest-10051
+      - pytest-dev__pytest-10081
+      - pytest-dev__pytest-10115
+      - pytest-dev__pytest-10343
+      - pytest-dev__pytest-10356
+      - pytest-dev__pytest-10371
+      - pytest-dev__pytest-10442
+      - pytest-dev__pytest-10482
+      - pytest-dev__pytest-10552
+      - pytest-dev__pytest-10624
+    evaluation_track: strict_commit_fidelity
+
+  - repo: pytest-dev/pytest
+    domain: testing_tooling
+    task_family: swe-bench
+    dataset_name: SWE-bench/SWE-bench
+    source_prefixes: [src/_pytest, src/pytest]
+    n_issues: 10
+    issue_set_id: issues_swebench_pytest_v2_10
+    instance_ids:
+      - pytest-dev__pytest-10051
+      - pytest-dev__pytest-10081
+      - pytest-dev__pytest-10115
+      - pytest-dev__pytest-10343
+      - pytest-dev__pytest-10356
+      - pytest-dev__pytest-10371
+      - pytest-dev__pytest-10442
+      - pytest-dev__pytest-10482
+      - pytest-dev__pytest-10552
+      - pytest-dev__pytest-10624
+    evaluation_track: same_snapshot_amortized
+    snapshot_commit: aa55975c7d3f6c9f6d7f68accc41bb7cadf0eb9a
+
+  # Service framework
+  - repo: tiangolo/fastapi
+    domain: service_framework
+    task_family: swe-bench
+    dataset_name: SWE-bench/SWE-bench
+    source_prefixes: [fastapi]
+    n_issues: 10
+    issue_set_id: issues_swebench_fastapi_v2_10
+    instance_ids:
+      - tiangolo__fastapi-1122
+      - tiangolo__fastapi-1524
+      - tiangolo__fastapi-1534
+      - tiangolo__fastapi-1540
+      - tiangolo__fastapi-1547
+      - tiangolo__fastapi-1549
+      - tiangolo__fastapi-1553
+      - tiangolo__fastapi-17
+      - tiangolo__fastapi-241
+      - tiangolo__fastapi-2606
+    evaluation_track: strict_commit_fidelity
+
+  - repo: tiangolo/fastapi
+    domain: service_framework
+    task_family: swe-bench
+    dataset_name: SWE-bench/SWE-bench
+    source_prefixes: [fastapi]
+    n_issues: 10
+    issue_set_id: issues_swebench_fastapi_v2_10
+    instance_ids:
+      - tiangolo__fastapi-1122
+      - tiangolo__fastapi-1524
+      - tiangolo__fastapi-1534
+      - tiangolo__fastapi-1540
+      - tiangolo__fastapi-1547
+      - tiangolo__fastapi-1549
+      - tiangolo__fastapi-1553
+      - tiangolo__fastapi-17
+      - tiangolo__fastapi-241
+      - tiangolo__fastapi-2606
+    evaluation_track: same_snapshot_amortized
+    snapshot_commit: 025b38df40a18f94322fab445aee13024fe783da
+
+  # ===== SWE-PolyBench (retrieval-first) =====
+  # App/CLI-heavy
+  - repo: yt-dlp/yt-dlp
+    domain: app_cli
+    task_family: swe-polybench
+    dataset_name: AmazonScience/SWE-PolyBench_Verified
+    source_prefixes: [yt_dlp]
+    n_issues: 5
+    issue_set_id: issues_polybench_ytdlp_v2_5
+    instance_ids:
+      - yt-dlp__yt-dlp-4841
+      - yt-dlp__yt-dlp-5195
+      - yt-dlp__yt-dlp-5933
+      - yt-dlp__yt-dlp-9862
+      - yt-dlp__yt-dlp-10390
+    evaluation_track: strict_commit_fidelity
+
+  - repo: yt-dlp/yt-dlp
+    domain: app_cli
+    task_family: swe-polybench
+    dataset_name: AmazonScience/SWE-PolyBench_Verified
+    source_prefixes: [yt_dlp]
+    n_issues: 5
+    issue_set_id: issues_polybench_ytdlp_v2_5
+    instance_ids:
+      - yt-dlp__yt-dlp-4841
+      - yt-dlp__yt-dlp-5195
+      - yt-dlp__yt-dlp-5933
+      - yt-dlp__yt-dlp-9862
+      - yt-dlp__yt-dlp-10390
+    evaluation_track: same_snapshot_amortized
+    snapshot_commit: 07a1250e0e90515ff8142161536f9dafa6eaba1b
+
+  # Framework/service-oriented
+  - repo: langchain-ai/langchain
+    domain: service_framework
+    task_family: swe-polybench
+    dataset_name: AmazonScience/SWE-PolyBench_Verified
+    source_prefixes: [langchain]
+    n_issues: 10
+    issue_set_id: issues_polybench_langchain_v2_10
+    instance_ids:
+      - langchain-ai__langchain-3367
+      - langchain-ai__langchain-4009
+      - langchain-ai__langchain-4103
+      - langchain-ai__langchain-4420
+      - langchain-ai__langchain-4579
+      - langchain-ai__langchain-4646
+      - langchain-ai__langchain-5450
+      - langchain-ai__langchain-5584
+      - langchain-ai__langchain-5609
+      - langchain-ai__langchain-5625
+    evaluation_track: strict_commit_fidelity
+
+  - repo: langchain-ai/langchain
+    domain: service_framework
+    task_family: swe-polybench
+    dataset_name: AmazonScience/SWE-PolyBench_Verified
+    source_prefixes: [langchain]
+    n_issues: 10
+    issue_set_id: issues_polybench_langchain_v2_10
+    instance_ids:
+      - langchain-ai__langchain-3367
+      - langchain-ai__langchain-4009
+      - langchain-ai__langchain-4103
+      - langchain-ai__langchain-4420
+      - langchain-ai__langchain-4579
+      - langchain-ai__langchain-4646
+      - langchain-ai__langchain-5450
+      - langchain-ai__langchain-5584
+      - langchain-ai__langchain-5609
+      - langchain-ai__langchain-5625
+    evaluation_track: same_snapshot_amortized
+    snapshot_commit: 3a1bdce3f51e302d468807e980455d676c0f5fd6
+
+  # Library-heavy
+  - repo: keras-team/keras
+    domain: library
+    task_family: swe-polybench
+    dataset_name: AmazonScience/SWE-PolyBench_Verified
+    source_prefixes: [keras]
+    n_issues: 10
+    issue_set_id: issues_polybench_keras_v2_10
+    instance_ids:
+      - keras-team__keras-18553
+      - keras-team__keras-18871
+      - keras-team__keras-18975
+      - keras-team__keras-19190
+      - keras-team__keras-19201
+      - keras-team__keras-19459
+      - keras-team__keras-19466
+      - keras-team__keras-19484
+      - keras-team__keras-19636
+      - keras-team__keras-19641
+    evaluation_track: strict_commit_fidelity
+
+  - repo: keras-team/keras
+    domain: library
+    task_family: swe-polybench
+    dataset_name: AmazonScience/SWE-PolyBench_Verified
+    source_prefixes: [keras]
+    n_issues: 10
+    issue_set_id: issues_polybench_keras_v2_10
+    instance_ids:
+      - keras-team__keras-18553
+      - keras-team__keras-18871
+      - keras-team__keras-18975
+      - keras-team__keras-19190
+      - keras-team__keras-19201
+      - keras-team__keras-19459
+      - keras-team__keras-19466
+      - keras-team__keras-19484
+      - keras-team__keras-19636
+      - keras-team__keras-19641
+    evaluation_track: same_snapshot_amortized
+    snapshot_commit: c8a5a8969a8712a9a1939937ce34158e04cfc09d

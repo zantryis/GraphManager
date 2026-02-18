@@ -35,3 +35,6 @@ results/
 # OS
 .DS_Store
 Thumbs.db
+
+# Reference material / large local assets
+previous_work/

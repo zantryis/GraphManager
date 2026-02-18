@@ -3,13 +3,11 @@ Graph Builder: Parse a Python repository into a knowledge graph using tree-sitte
 
 Produces a networkx DiGraph where:
   - Nodes: files, classes, functions (with metadata: signature, docstring, line range)
-  - Edges: DEFINES, IMPORTS, CALLS, CONTAINS
+  - Edges: DEFINES, IMPORTS, CALLS, CONTAINS, INHERITS
 Plus a FAISS vector index over node names + docstrings for fuzzy search.
 """
 
 import json
-import os
-import re
 from pathlib import Path
 
 import faiss
@@ -18,20 +16,56 @@ import numpy as np
 import tree_sitter_python as tspython
 from tree_sitter import Language, Parser
 
+from src.resolvers import (
+    CallResolver,
+    ImportResolver,
+    TypeInferenceEngine,
+    rank_nodes_by_path_similarity,
+    split_csv_expressions,
+)
+
 PY_LANGUAGE = Language(tspython.language())
 
 
 class GraphBuilder:
-    def __init__(self, repo_path: str, include_prefixes: tuple[str, ...] | None = None):
+    def __init__(
+        self,
+        repo_path: str,
+        include_prefixes: tuple[str, ...] | None = None,
+        include_low_confidence_calls: bool = True,
+    ):
         self.repo_path = Path(repo_path)
         self.graph = nx.DiGraph()
         self.parser = Parser(PY_LANGUAGE)
         self.include_prefixes = tuple(
             prefix.rstrip("/") for prefix in (include_prefixes or ())
         )
+        self.include_low_confidence_calls = include_low_confidence_calls
+        self.file_import_map: dict[str, dict[str, list[dict]]] = {}
+        self.import_resolver = ImportResolver(
+            repo_path=self.repo_path,
+            graph=self.graph,
+            file_import_map=self.file_import_map,
+        )
+        self.type_inference_engine = TypeInferenceEngine(
+            graph=self.graph,
+            import_resolver=self.import_resolver,
+        )
+        self.call_resolver = CallResolver(
+            graph=self.graph,
+            import_resolver=self.import_resolver,
+            type_inference_engine=self.type_inference_engine,
+            include_low_confidence_calls=self.include_low_confidence_calls,
+        )
 
     def build(self) -> nx.DiGraph:
         """Walk all .py files in the repo and build the knowledge graph."""
+        self.graph = nx.DiGraph()
+        self.import_resolver.graph = self.graph
+        self.import_resolver.file_import_map = self.file_import_map
+        self.type_inference_engine.graph = self.graph
+        self.call_resolver.graph = self.graph
+        self.file_import_map.clear()
         py_files = sorted(self.repo_path.rglob("*.py"))
         valid_files = []
         for py_file in py_files:
@@ -54,9 +88,22 @@ class GraphBuilder:
             except Exception as e:
                 print(f"  Warning: failed to parse {rel_path}: {e}")
 
-        # Resolve call edges (match call names to known function nodes)
+        # Resolve inheritance and call edges once all nodes are known.
+        self._resolve_inheritance()
         self._resolve_calls()
         return self.graph
+
+    def update_files(self, changed_paths: list[str]) -> nx.DiGraph:
+        """Incremental-update interface (current strategy: conservative full rebuild)."""
+        _ = changed_paths
+        return self.build()
+
+    def recompute_edges_for(self, changed_nodes: list[str], strategy: str = "full") -> nx.DiGraph:
+        """Edge recomputation interface; currently rebuilds for deterministic parity."""
+        _ = changed_nodes
+        if strategy not in {"full", "conservative"}:
+            raise ValueError(f"Unsupported recompute strategy: {strategy}")
+        return self.build()
 
     def _is_included(self, rel_path: str) -> bool:
         """Check whether a file should be indexed based on include prefixes."""
@@ -71,6 +118,8 @@ class GraphBuilder:
         """Parse a single Python file and add nodes/edges to the graph."""
         tree = self.parser.parse(source)
         root = tree.root_node
+        import_map: dict[str, list[dict]] = {}
+        self.file_import_map[rel_path] = import_map
 
         # Update file node with docstring (node was pre-added in build())
         file_docstring = self._extract_module_docstring(root, source)
@@ -89,7 +138,7 @@ class GraphBuilder:
             elif child.type == "class_definition":
                 self._add_class_node(child, source, rel_path)
             elif child.type == "import_statement" or child.type == "import_from_statement":
-                self._add_import_edge(child, source, rel_path)
+                self._add_import_edge(child, source, rel_path, import_map)
 
     def _add_function_node(self, node, source: bytes, file_path: str, parent_class: str | None):
         """Add a function/method node to the graph."""
@@ -104,8 +153,10 @@ class GraphBuilder:
 
         # Collect call expressions inside this function body
         calls = []
+        local_type_hints: dict[str, str] = {}
         if body_node:
             self._collect_calls(body_node, calls)
+            local_type_hints = self.type_inference_engine.collect_local_type_hints(body_node)
 
         if parent_class:
             node_id = f"{file_path}::{parent_class}.{func_name}"
@@ -119,9 +170,11 @@ class GraphBuilder:
             signature=signature,
             docstring=docstring or "",
             file=file_path,
+            parent_class=parent_class,
             start_line=node.start_point[0] + 1,
             end_line=node.end_point[0] + 1,
             _raw_calls=calls,  # resolved later
+            _local_type_hints=local_type_hints,
         )
 
         # Edge: file/class DEFINES function
@@ -149,6 +202,7 @@ class GraphBuilder:
             file=file_path,
             start_line=node.start_point[0] + 1,
             end_line=node.end_point[0] + 1,
+            _raw_bases=self._extract_class_bases(node),
         )
         self.graph.add_edge(file_path, node_id, type="DEFINES")
 
@@ -162,52 +216,29 @@ class GraphBuilder:
                     if inner and inner.type == "function_definition":
                         self._add_function_node(inner, source, file_path, parent_class=class_name)
 
-    def _add_import_edge(self, node, source: bytes, file_path: str):
+    def _add_import_edge(self, node, source: bytes, file_path: str, import_map: dict[str, list[dict]]):
         """Add IMPORTS edges based on import statements."""
-        text = node.text.decode("utf-8")
-        # Extract module name from 'from X import ...' or 'import X'
-        if node.type == "import_from_statement":
-            module_node = node.child_by_field_name("module_name")
-            if module_node:
-                module_name = module_node.text.decode("utf-8")
-            else:
-                # Relative import like 'from . import X'
-                match = re.match(r"from\s+(\.+\w*)", text)
-                module_name = match.group(1) if match else None
-        else:
-            # 'import X' or 'import X.Y'
-            match = re.match(r"import\s+([\w.]+)", text)
-            module_name = match.group(1) if match else None
-
-        if module_name:
-            # Try to resolve to a file in the repo
-            target_file = self._resolve_module(module_name, file_path)
-            if target_file and target_file in self.graph:
-                self.graph.add_edge(file_path, target_file, type="IMPORTS")
+        self.import_resolver.record_import_edge(
+            node_type=node.type,
+            text=node.text.decode("utf-8"),
+            file_path=file_path,
+            import_map=import_map,
+        )
 
     def _resolve_module(self, module_name: str, current_file: str) -> str | None:
-        """Try to map a Python module name to a file path in the repo."""
-        # Handle relative imports
-        if module_name.startswith("."):
-            current_dir = str(Path(current_file).parent)
-            dots = len(module_name) - len(module_name.lstrip("."))
-            rest = module_name.lstrip(".")
-            base = current_dir
-            for _ in range(dots - 1):
-                base = str(Path(base).parent)
-            if rest:
-                candidate = os.path.join(base, rest.replace(".", "/"))
-            else:
-                candidate = base
-        else:
-            candidate = module_name.replace(".", "/")
+        return self.import_resolver.resolve_module(module_name, current_file)
 
-        # Check candidate.py and candidate/__init__.py
-        for suffix in [".py", "/__init__.py"]:
-            path = candidate + suffix
-            if (self.repo_path / path).exists():
-                return path
-        return None
+    def _record_import_statement(self, text: str, file_path: str, import_map: dict[str, list[dict]]):
+        self.import_resolver.record_import_statement(text, file_path, import_map)
+
+    def _record_import_from_statement(self, text: str, file_path: str, import_map: dict[str, list[dict]]):
+        self.import_resolver.record_import_from_statement(text, file_path, import_map)
+
+    def _register_import_entry(self, import_map: dict[str, list[dict]], alias: str, entry: dict):
+        self.import_resolver.register_import_entry(import_map, alias, entry)
+
+    def _split_csv_expressions(self, text: str) -> list[str]:
+        return split_csv_expressions(text)
 
     def _collect_calls(self, node, calls: list):
         """Recursively collect function call names from an AST subtree."""
@@ -215,30 +246,102 @@ class GraphBuilder:
             func_node = node.child_by_field_name("function")
             if func_node:
                 call_text = func_node.text.decode("utf-8")
-                # Extract the last identifier: 'self.foo' → 'foo', 'module.bar' → 'bar'
-                parts = call_text.split(".")
-                calls.append(parts[-1])
+                call_name = ""
+                qualifier = ""
+                if func_node.type == "attribute":
+                    attr_node = func_node.child_by_field_name("attribute")
+                    obj_node = func_node.child_by_field_name("object")
+                    call_name = attr_node.text.decode("utf-8") if attr_node else call_text.split(".")[-1]
+                    obj_text = obj_node.text.decode("utf-8") if obj_node else ""
+                    qualifier = obj_text.split(".", 1)[0] if obj_text else ""
+                elif func_node.type == "identifier":
+                    call_name = call_text
+                else:
+                    parts = call_text.split(".")
+                    call_name = parts[-1]
+                    qualifier = parts[0] if len(parts) > 1 else ""
+
+                if call_name:
+                    calls.append({
+                        "name": call_name,
+                        "qualifier": qualifier,
+                    })
         for child in node.children:
             self._collect_calls(child, calls)
 
-    def _resolve_calls(self):
-        """Match collected call names to known function nodes in the graph."""
-        # Build name→node_id lookup
-        name_to_nodes = {}
+    def _resolve_inheritance(self):
+        """Resolve stored superclass names into INHERITS edges."""
+        class_name_to_nodes: dict[str, list[str]] = {}
+        file_class_name_to_nodes: dict[tuple[str, str], list[str]] = {}
         for node_id, data in self.graph.nodes(data=True):
-            if data.get("type") in ("function",):
-                name = data.get("name", "")
-                if name:
-                    name_to_nodes.setdefault(name, []).append(node_id)
+            if data.get("type") != "class":
+                continue
+            name = str(data.get("name", ""))
+            file_path = str(data.get("file", ""))
+            if name:
+                class_name_to_nodes.setdefault(name, []).append(node_id)
+                file_class_name_to_nodes.setdefault((file_path, name), []).append(node_id)
 
-        # Add CALLS edges
         for node_id, data in list(self.graph.nodes(data=True)):
-            raw_calls = data.pop("_raw_calls", [])
-            for call_name in set(raw_calls):
-                targets = name_to_nodes.get(call_name, [])
-                for target_id in targets:
-                    if target_id != node_id:
-                        self.graph.add_edge(node_id, target_id, type="CALLS")
+            if data.get("type") != "class":
+                continue
+            raw_bases = data.pop("_raw_bases", [])
+            file_path = str(data.get("file", ""))
+            for base_expr in raw_bases:
+                target = self._resolve_base_class(
+                    base_expr=base_expr,
+                    file_path=file_path,
+                    class_name_to_nodes=class_name_to_nodes,
+                    file_class_name_to_nodes=file_class_name_to_nodes,
+                )
+                if target and target != node_id:
+                    self.graph.add_edge(node_id, target, type="INHERITS")
+
+    def _extract_class_bases(self, node) -> list[str]:
+        """Extract base class expressions from a class_definition node."""
+        super_node = node.child_by_field_name("superclasses")
+        if not super_node:
+            return []
+        raw = super_node.text.decode("utf-8").strip()
+        if raw.startswith("(") and raw.endswith(")"):
+            raw = raw[1:-1].strip()
+        if not raw:
+            return []
+        bases = []
+        for expr in self._split_csv_expressions(raw):
+            candidate = expr.strip()
+            if not candidate:
+                continue
+            # Strip generic type params, e.g. Base[T] -> Base.
+            candidate = candidate.split("[", 1)[0].strip()
+            if candidate:
+                bases.append(candidate)
+        return bases
+
+    def _resolve_base_class(
+        self,
+        *,
+        base_expr: str,
+        file_path: str,
+        class_name_to_nodes: dict[str, list[str]],
+        file_class_name_to_nodes: dict[tuple[str, str], list[str]],
+    ) -> str | None:
+        return self.import_resolver.resolve_base_class(
+            base_expr=base_expr,
+            file_path=file_path,
+            class_name_to_nodes=class_name_to_nodes,
+            file_class_name_to_nodes=file_class_name_to_nodes,
+            rank_nodes=self._rank_nodes_by_path_similarity,
+        )
+
+    def _resolve_calls(self):
+        self.call_resolver.resolve_calls()
+
+    def _resolve_import_targets(self, file_path: str, import_name: str, member_name: str | None = None) -> list[str]:
+        return self.import_resolver.resolve_import_targets(file_path, import_name, member_name=member_name)
+
+    def _rank_nodes_by_path_similarity(self, caller_file: str, candidate_ids: list[str]) -> list[str]:
+        return rank_nodes_by_path_similarity(self.graph, caller_file, candidate_ids)
 
     def _extract_module_docstring(self, root_node, source: bytes) -> str | None:
         """Extract the module-level docstring (first expression statement that is a string)."""
@@ -301,6 +404,9 @@ class GraphBuilder:
         """Load graph from JSON."""
         data = json.loads(Path(path).read_text())
         self.graph = nx.DiGraph()
+        self.import_resolver.graph = self.graph
+        self.type_inference_engine.graph = self.graph
+        self.call_resolver.graph = self.graph
         for node in data["nodes"]:
             node_id = node.pop("id")
             self.graph.add_node(node_id, **node)
@@ -377,12 +483,13 @@ class GraphIndex:
         self.index.add(embeddings)
         print(f"  Indexed {len(node_ids)} nodes ({self.embedding_tokens_estimate} est. embedding tokens)")
 
-    def search(self, query: str, top_k: int = 10) -> list[dict]:
+    def search(self, query: str, top_k: int = 10) -> dict:
         """Search the index for nodes matching a query."""
         if self.index is None:
-            return []
+            return {"results": [], "query_embedding_tokens": 0}
 
         from google.genai import types
+        query_embedding_tokens = max(len(query.strip()) // 4, 0) if query else 0
         result = self.client.models.embed_content(
             model="gemini-embedding-001",
             contents=[query],
@@ -412,7 +519,10 @@ class GraphIndex:
                 "signature": data.get("signature", ""),
                 "score": float(score),
             })
-        return results
+        return {
+            "results": results,
+            "query_embedding_tokens": query_embedding_tokens,
+        }
 
     def save(self, path: str):
         """Save the FAISS index and metadata."""

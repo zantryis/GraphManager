@@ -1,0 +1,144 @@
+\begin{thebibliography}{19}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Brunsfeld et~al.(2018)]{brunsfeld2018treesitter}
+Max Brunsfeld et~al.
+\newblock Tree-sitter: An incremental parsing system for programming tools.
+\newblock \url{https://github.com/tree-sitter/tree-sitter}, 2018.
+
+\bibitem[Chinthareddy(2026)]{reliablegraphrag2026}
+Manideep~Reddy Chinthareddy.
+\newblock Reliable graph-{RAG} for codebases: {AST}-derived graphs vs
+  {LLM}-extracted knowledge graphs.
+\newblock \emph{arXiv preprint arXiv:2601.08773}, 2026.
+
+\bibitem[Edge et~al.(2024)Edge, Trinh, Cheng, Bradley, Chao, Mody, Truitt,
+  Metropolitansky, Osazuwa~Ness, and Larson]{edge2024graphrag}
+Darren Edge, Ha~Trinh, Newman Cheng, Joshua Bradley, Alex Chao, Apurva Mody,
+  Steven Truitt, Dasha Metropolitansky, Robert Osazuwa~Ness, and Jonathan
+  Larson.
+\newblock From local to global: A graph {RAG} approach to query-focused
+  summarization.
+\newblock \emph{arXiv preprint arXiv:2404.16130}, 2024.
+
+\bibitem[{Gemini Team, Google DeepMind}(2024)]{gemini2024}
+{Gemini Team, Google DeepMind}.
+\newblock Gemini: A family of highly capable multimodal models.
+\newblock \emph{arXiv preprint arXiv:2312.11805}, 2024.
+
+\bibitem[Hagberg et~al.(2008)Hagberg, Schult, and Swart]{hagberg2008networkx}
+Aric~A. Hagberg, Daniel~A. Schult, and Pieter~J. Swart.
+\newblock Exploring network structure, dynamics, and function using {NetworkX}.
+\newblock In \emph{Proceedings of the 7th Python in Science Conference
+  (SciPy)}, pages 11--15, 2008.
+
+\bibitem[Hai et~al.(2024)Hai, Manh, and Bui]{repoexec2024}
+Nam~Le Hai, Dung~Nguyen Manh, and Nghi D.~Q. Bui.
+\newblock {RepoExec}: Evaluate code generation with a repository-level
+  executable benchmark.
+\newblock \emph{arXiv preprint arXiv:2406.11927}, 2024.
+\newblock URL \url{https://arxiv.org/abs/2406.11927}.
+
+\bibitem[Jimenez et~al.(2024)Jimenez, Yang, Wettig, Yao, Pei, Press, and
+  Narasimhan]{swebench2024}
+Carlos~E. Jimenez, John Yang, Alexander Wettig, Shunyu Yao, Kexin Pei, Ofir
+  Press, and Karthik Narasimhan.
+\newblock {SWE}-bench: Can language models resolve real-world {GitHub} issues?
+\newblock In \emph{International Conference on Learning Representations
+  (ICLR)}, 2024.
+\newblock URL \url{https://arxiv.org/abs/2310.06770}.
+
+\bibitem[Johnson et~al.(2021)Johnson, Douze, and J{\'e}gou]{johnson2021faiss}
+Jeff Johnson, Matthijs Douze, and Herv{\'e} J{\'e}gou.
+\newblock Billion-scale similarity search with {GPUs}.
+\newblock \emph{IEEE Transactions on Big Data}, 7\penalty0 (3):\penalty0
+  535--547, 2021.
+
+\bibitem[Lewis et~al.(2020)Lewis, Perez, Piktus, Petroni, Karpukhin, Goyal,
+  K{\"u}ttler, Lewis, Yih, Rockt{\"a}schel, Riedel, and Kiela]{lewis2020rag}
+Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir
+  Karpukhin, Naman Goyal, Heinrich K{\"u}ttler, Mike Lewis, Wen-tau Yih, Tim
+  Rockt{\"a}schel, Sebastian Riedel, and Douwe Kiela.
+\newblock Retrieval-augmented generation for knowledge-intensive {NLP} tasks.
+\newblock In \emph{Advances in Neural Information Processing Systems
+  (NeurIPS)}, volume~33, pages 9459--9474, 2020.
+
+\bibitem[Liu et~al.(2024{\natexlab{a}})Liu, Xu, and McAuley]{repobench2024}
+Tianyang Liu, Canwen Xu, and Julian McAuley.
+\newblock {RepoBench}: Benchmarking repository-level code auto-completion
+  systems.
+\newblock In \emph{International Conference on Learning Representations
+  (ICLR)}, 2024{\natexlab{a}}.
+\newblock URL \url{https://arxiv.org/abs/2306.03091}.
+
+\bibitem[Liu et~al.(2024{\natexlab{b}})Liu, Yu, Zan, Shen, Zhang, Zhao, Jin,
+  and Wang]{graphcoder2024}
+Wei Liu, Ailun Yu, Daoguang Zan, Bo~Shen, Wei Zhang, Haiyan Zhao, Zhi Jin, and
+  Qianxiang Wang.
+\newblock {GraphCoder}: Enhancing repository-level code completion via
+  coarse-to-fine retrieval based on code context graph.
+\newblock In \emph{Proceedings of the 39th IEEE/ACM International Conference on
+  Automated Software Engineering (ASE)}, 2024{\natexlab{b}}.
+
+\bibitem[Liu et~al.(2025)Liu, Zhang, Liu, Wang, Wei, Yang, Zhang, Li, and
+  Shi]{reposcope2025}
+Yang Liu, Li~Zhang, Fang Liu, Zhuohang Wang, Donglin Wei, Zhishuo Yang, Kechi
+  Zhang, Jia Li, and Lin Shi.
+\newblock {RepoScope}: Leveraging call chain-aware multi-view context for
+  repository-level code generation.
+\newblock \emph{arXiv preprint arXiv:2507.14791}, 2025.
+
+\bibitem[Ouyang et~al.(2024)Ouyang, Yu, Ma, Xiao, Zhang, Jia, Han, Zhang, and
+  Yu]{repograph2024}
+Siru Ouyang, Wenhao Yu, Kaixin Ma, Zilin Xiao, Zhihan Zhang, Mengzhao Jia,
+  Jiawei Han, Hongming Zhang, and Dong Yu.
+\newblock {RepoGraph}: Enhancing {AI} software engineering with
+  repository-level code graph.
+\newblock \emph{arXiv preprint arXiv:2410.14684}, 2024.
+
+\bibitem[Phan et~al.(2025)Phan, Phan, Nguyen, and Bui]{repohyper2024}
+Huy~Nhat Phan, Hoang~Nhat Phan, Tien~N. Nguyen, and Nghi D.~Q. Bui.
+\newblock {RepoHyper}: Search-expand-refine on semantic graphs for
+  repository-level code completion.
+\newblock In \emph{Proceedings of the 2nd ACM International Conference on AI
+  Foundation Models and Software Engineering (FORGE)}, 2025.
+\newblock arXiv:2403.06095.
+
+\bibitem[Rashid et~al.(2025)]{swepolybench2025}
+Muhammad~Shihab Rashid et~al.
+\newblock {SWE-PolyBench}: A multi-language benchmark for repository-level
+  evaluation of coding agents.
+\newblock \emph{arXiv preprint arXiv:2504.08703}, 2025.
+\newblock URL \url{https://arxiv.org/abs/2504.08703}.
+
+\bibitem[vitali87(2025)]{codegraphrag}
+vitali87.
+\newblock Code-graph-{RAG}.
+\newblock \url{https://github.com/vitali87/code-graph-rag}, 2025.
+
+\bibitem[Xia et~al.(2024)Xia, Deng, Dunn, and Zhang]{xia2024agentless}
+Chunqiu~Steven Xia, Yinlin Deng, Soren Dunn, and Lingming Zhang.
+\newblock Agentless: Demystifying {LLM}-based software engineering agents.
+\newblock \emph{arXiv preprint arXiv:2407.01489}, 2024.
+
+\bibitem[Yang et~al.(2024)Yang, Jimenez, Wettig, Lieret, Yao, Narasimhan, and
+  Press]{yang2024sweagent}
+John Yang, Carlos~E. Jimenez, Alexander Wettig, Kilian Lieret, Shunyu Yao,
+  Karthik Narasimhan, and Ofir Press.
+\newblock {SWE}-agent: Agent-computer interfaces enable automated software
+  engineering.
+\newblock In \emph{Advances in Neural Information Processing Systems
+  (NeurIPS)}, volume~37, 2024.
+
+\bibitem[Zhang et~al.(2024)Zhang, Ruan, Fan, and
+  Roychoudhury]{zhang2024autocoderover}
+Yuntong Zhang, Haifeng Ruan, Zhiyu Fan, and Abhik Roychoudhury.
+\newblock {AutoCodeRover}: Autonomous program improvement.
+\newblock In \emph{Proceedings of the 33rd ACM SIGSOFT International Symposium
+  on Software Testing and Analysis (ISSTA)}, 2024.
+
+\end{thebibliography}
