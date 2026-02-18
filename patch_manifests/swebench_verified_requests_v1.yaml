@@ -9,8 +9,11 @@ repo_name: psf/requests
 source_prefixes:
   - requests
 retrieval_method: gm_progressive
-manager_max_turns: 4
+manager_max_turns: 8
 patch_max_turns: 3
+patch_max_output_tokens: 12288
+patch_max_file_chars: 12000
+api_timeout_s: 300
 manager_model: gemini-3-flash-preview
 patch_model: gemini-2.5-flash
 rate_limit_max_retries: 8

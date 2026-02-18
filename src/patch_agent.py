@@ -103,15 +103,23 @@ def extract_patch(response_text: str) -> str | None:
     return _extract_raw_unified_diff(response_text)
 
 
+def contains_cannot_patch_signal(response_text: str) -> bool:
+    """Return True when the model explicitly signals CANNOT_PATCH."""
+    return bool(_CANNOT_PATCH_RE.search(response_text or ""))
+
+
 
 def build_patch_prompt(
     issue_text: str,
     file_contents: dict[str, str],
+    correction_context: str | None = None,
 ) -> str:
     """Build the user-turn prompt for patch generation."""
     parts = [f"## Issue\n\n{issue_text}\n"]
     for path, content in file_contents.items():
         parts.append(f"## File: {path}\n\n```python\n{content}\n```\n")
+    if correction_context:
+        parts.append(f"## Correction Context\n\n{correction_context}\n")
     return "\n".join(parts)
 
 
@@ -128,11 +136,13 @@ class PatchAgent:
         client: genai.Client,
         model: str = "gemini-2.0-flash",
         max_file_chars: int = 8000,
+        max_output_tokens: int = 4096,
     ):
         self.repo_dir = Path(repo_dir)
         self.client = client
         self.model = model
         self.max_file_chars = max_file_chars
+        self.max_output_tokens = max_output_tokens
 
     def _read_file(self, rel_path: str) -> str | None:
         """Read a repo file, truncate if over max_file_chars."""
@@ -162,6 +172,7 @@ class PatchAgent:
         retrieved_files: list[str],
         *,
         max_turns: int = 3,
+        correction_context: str | None = None,
     ) -> tuple[str | None, dict]:
         """Generate a unified diff patch for the given issue.
 
@@ -185,7 +196,7 @@ class PatchAgent:
                 "stop_reason": "no_readable_files",
             }
 
-        prompt = build_patch_prompt(issue_text, file_contents)
+        prompt = build_patch_prompt(issue_text, file_contents, correction_context=correction_context)
         total_prompt = 0
         total_candidate = 0
         stop_reason = "unknown"
@@ -198,7 +209,7 @@ class PatchAgent:
                     config=types.GenerateContentConfig(
                         system_instruction=PATCH_SYSTEM_PROMPT,
                         temperature=0.0,
-                        max_output_tokens=4096,
+                        max_output_tokens=self.max_output_tokens,
                     ),
                 )
             except Exception as e:
@@ -225,6 +236,18 @@ class PatchAgent:
                 part_text = response.candidates[0].content.parts[0].text
                 response_text = part_text if isinstance(part_text, str) else ""
 
+            if contains_cannot_patch_signal(response_text):
+                return None, {
+                    "prompt_tokens": total_prompt,
+                    "candidate_tokens": total_candidate,
+                    "total_tokens": total_prompt + total_candidate,
+                    "tool_calls": 0,
+                    "stop_reason": "cannot_patch",
+                    "turns_used": turn + 1,
+                    "files_provided": len(file_contents),
+                    "cannot_patch": True,
+                }
+
             patch = extract_patch(response_text)
             if patch is not None:
                 return patch, {
@@ -235,6 +258,7 @@ class PatchAgent:
                     "stop_reason": stop_reason,
                     "turns_used": turn + 1,
                     "files_provided": len(file_contents),
+                    "cannot_patch": False,
                 }
 
             # No valid patch yet — ask for a correction on the next turn
@@ -253,5 +277,6 @@ class PatchAgent:
             "stop_reason": stop_reason,
             "turns_used": max_turns,
             "files_provided": len(file_contents),
+            "cannot_patch": False,
             "error": "no_valid_patch_after_max_turns",
         }

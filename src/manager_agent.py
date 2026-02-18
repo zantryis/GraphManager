@@ -316,14 +316,14 @@ class ManagerAgent:
                 confirmed_files,
                 observed_files,
                 file_scores,
-            ), self._finalize_usage(token_usage, stop_reason="max_turns")
+            ), self._finalize_usage(token_usage, stop_reason="budget")
         if self.cfg["fallback_to_observed_files"] and observed_files:
             return self._finalize_file_list(
                 sorted(observed_files),
                 confirmed_files,
                 observed_files,
                 file_scores,
-            ), self._finalize_usage(token_usage, stop_reason="max_turns")
+            ), self._finalize_usage(token_usage, stop_reason="budget")
         return [], self._finalize_usage(token_usage, stop_reason="max_turns")
 
     def _finalize_usage(self, token_usage: dict, stop_reason: str) -> dict:
