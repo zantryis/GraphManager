@@ -39,6 +39,13 @@ Workstreams A (retrieval eval), B (patching pipeline), and C (paper writing) are
 intentionally separate. Do not touch A's files while working on B, and vice versa.
 Check `CURRENT_STATE.md` to confirm which workstream you are assigned.
 
+### Workstream status rules
+- `[ACTIVE]` — in flight. Work here.
+- `[DONE]` — all goals met. You may mark a workstream done if verifiably complete.
+- `[ARCHIVED]` — retired. Do not resurrect.
+- You may **NOT** create new workstreams or change status to `[ACTIVE]`. Only the researcher does that.
+- If you notice a new task or problem, append it to the **Parking Lot** section of `CURRENT_STATE.md` and stop. Do not act on it unless your prompt explicitly assigns it.
+
 ### Do not re-run valid experiments
 Retrieval experiment cells that already have valid results are frozen. Do not
 re-run them. Check `CURRENT_STATE.md` → Workstream A status before running anything.
