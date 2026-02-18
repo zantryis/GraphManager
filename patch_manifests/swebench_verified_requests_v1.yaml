@@ -1,34 +1,30 @@
-# Patch manifest: psf/requests, SWE-bench Verified
-# 8 instances — all verified instances available for this repo
-# Retrieval: gm_progressive (best F1 in retrieval evaluation)
-# Created: 2026-02-18
-
 dataset_name: SWE-bench/SWE-bench_Verified
 split: test
 repo_name: psf/requests
 source_prefixes:
-  - requests
+- requests
 retrieval_method: gm_progressive
 manager_max_turns: 8
-patch_max_turns: 3
+patch_max_turns: 1
 patch_max_output_tokens: 12288
 patch_max_file_chars: 12000
-api_timeout_s: 300
+api_timeout_s: 180
 manager_model: gemini-3-flash-preview
 patch_model: gemini-2.5-flash
-rate_limit_max_retries: 8
-rate_limit_initial_delay_s: 8.0
+rate_limit_max_retries: 1
+rate_limit_initial_delay_s: 2.0
 rate_limit_backoff_multiplier: 2.0
-rate_limit_max_delay_s: 180.0
-rate_limit_jitter_s: 2.0
-per_instance_cooldown_s: 2.5
-
+rate_limit_max_delay_s: 10.0
+rate_limit_jitter_s: 0.5
+per_instance_cooldown_s: 0.0
 instance_ids:
-  - psf__requests-1142
-  - psf__requests-1724
-  - psf__requests-1766
-  - psf__requests-1921
-  - psf__requests-2317
-  - psf__requests-2931
-  - psf__requests-5414
-  - psf__requests-6028
+- psf__requests-1142
+- psf__requests-1724
+- psf__requests-1766
+- psf__requests-1921
+- psf__requests-2317
+- psf__requests-2931
+- psf__requests-5414
+- psf__requests-6028
+patch_apply_repair_retries: 0
+patch_retrieval_retry_max: 0

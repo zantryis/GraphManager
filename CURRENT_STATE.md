@@ -3,7 +3,7 @@
 <!-- Keep it short. Detailed reasoning lives in dev_logs/. -->
 
 Last updated: 2026-02-18
-Last agent: Claude Sonnet 4.6 (post-Phase-0/1 review)
+Last agent: Claude Sonnet 4.6 (closed B1, updated manifest)
 
 ---
 
@@ -41,34 +41,31 @@ Command: `./.venv/bin/python run_experiment.py --method gm_deterministic ...`
 
 ---
 
-### Workstream B — Patching pipeline [BLOCKED on B1]
+### Workstream B — Patching pipeline [ALL BUGS CLOSED — needs clean run]
 **Owner files:** `run_patch.py`, `src/patch_agent.py`, `patch_manifests/`
 
-**Phase 0/1 completed (commit 8dae81f, 2026-02-18):**
-- MAX_TOKENS fixed: raising patch_max_output_tokens to 12288 resolved truncation ✓
-- Apply check + repair loop: validated; retries now bounded (max 2 repair, max 1 retrieval) ✓
-- Harness capture: now works; n_resolved populates correctly ✓
-- Manager termination: now returns confirmed_files at stagnation/budget instead of [] ✓
+**Phase 0/1 completed (commit 8dae81f) — all critical bugs fixed:**
+- B1 (base_commit): fixed — `_checkout_issue_commit` uses per-issue `issue.get("base_commit")` ✓
+- B2 (MAX_TOKENS): fixed — `patch_max_output_tokens=12288` ✓
+- B3 (manager termination): fixed — stagnation/budget fallback to confirmed_files ✓
+- B4 (retry code unvalidated): verified in run 20260218_133013 ✓
+- All retry/limit knobs manifest-tunable ✓
 - 104 unit tests passing ✓
 
-**Latest run (20260218_133013, gm_progressive, 8 instances):**
-- apply_success_rate=0.25 (2/8 patched), n_resolved=0/8
-- All 8 retrieval stop at "budget" (confirmed_files fallback, not max_turns)
-- 6/8 fail all repair retries (repair_retries_used=4, apply_failures=6)
+**Current manifest (swebench_verified_requests_v1.yaml) — fast iteration mode:**
+- `patch_max_turns: 1`, `patch_apply_repair_retries: 0`, `patch_retrieval_retry_max: 0`
+  (zero-shot, no retries — for rapid clean baseline)
+- Backoff: `initial=2s, max=10s, max_retries=1`, `per_instance_cooldown_s: 0`
+- `patch_model: gemini-2.5-flash`, `manager_model: gemini-3-flash-preview`
 
-**REMAINING CRITICAL BUG:**
-- **BUG 1 (CRITICAL): Wrong base_commit.** `run_patch.py:587` uses
-  `repo_issues[0].get("base_commit")` for ALL issues. All 8 instances have
-  different base_commits; 7/8 checkout at the wrong commit → wrong file content
-  → context mismatch → patches fail git apply. This is almost certainly the
-  root cause of the 75% apply failure rate and 0/8 resolved.
-  Fix: move per-issue checkout inside the issue loop.
+**Last run (20260218_133013):** apply=25%, resolved=0/8.
+Ran before B1 was confirmed fixed; patch quality (not base_commit) is now the
+likely driver of low apply rate. Need a fresh run.
 
 **Next action for this workstream:**
-1. Fix Bug 1 (base_commit). One-line change + move checkout into issue loop.
-2. Run clean 8-instance run with `--evaluate` to get true baseline.
-3. Run oracle (gold files → PatchAgent) to establish model ceiling.
-4. Expand to 30 instances (10 per repo: Flask, Requests, Pytest) with
+1. Run 8-instance requests manifest with `--evaluate` → get true apply/resolved baseline.
+2. Run oracle (gold files → PatchAgent, no retrieval) to establish model ceiling.
+3. Expand to 30 instances (10/repo: Flask, Requests, Pytest) with
    3 methods (cold-start, rag_progressive, gm_progressive) + --evaluate.
 
 ---
@@ -91,12 +88,12 @@ Meanwhile: fill gm_deterministic results once Workstream A runs them.
 
 | ID | Severity | Description | File | Fixed? |
 |----|----------|-------------|------|--------|
-| B1 | CRITICAL | Wrong base_commit: uses repo_issues[0] for all | run_patch.py:587 | NO |
-| B2 | CRITICAL | Thinking budget exhaustion on Gemini 2.5 | patch_agent.py | YES (raised max_output_tokens to 12288) |
+| B1 | CRITICAL | Wrong base_commit: uses repo_issues[0] for all | run_patch.py | YES (Phase 0/1: _checkout_issue_commit uses per-issue base_commit) |
+| B2 | CRITICAL | Thinking budget exhaustion on Gemini 2.5 | patch_agent.py | YES (patch_max_output_tokens=12288) |
 | B3 | HIGH | Manager never terminates naturally (max_turns every time) | manager_agent.py | YES (budget fallback to confirmed_files) |
 | B4 | HIGH | New retry/apply-check code never executed | run_patch.py | YES (verified in run 20260218_133013) |
-| B5 | MEDIUM | redact_paths removes file hints in patching context | run_patch.py:128 | NO |
-| B6 | LOW | Cold-start (retrieval_method: none) crashes with ValueError | run_patch.py:171 | NO |
+| B5 | MEDIUM | redact_paths removes file hints in patching context | run_patch.py | NO |
+| B6 | LOW | Cold-start (retrieval_method: none) crashes with ValueError | run_patch.py | NO |
 
 Full details: `dev_logs/2026-02-18-pipeline-vulnerability-assessment.md`
 
@@ -143,6 +140,6 @@ Full details: `dev_logs/2026-02-18-pipeline-vulnerability-assessment.md`
 | `results/patch_runs/20260218_133013/patch_summary.json` | Latest run (apply=25%, resolved=0) |
 | `EVALUATION_SPEC.md` | Metrics, protocols, statistical methods |
 | `AGENTS.md` | Repo-level agent instructions |
-| `patch_manifests/swebench_verified_requests_v1.yaml` | 8-instance manifest |
+| `patch_manifests/swebench_verified_requests_v1.yaml` | 8-instance requests manifest |
 | `results/clean_eval_20260211_201431/` | Valid retrieval results (frozen) |
 | `research_report/artifacts/frozen-20260212-matrix-v2-clean/` | Frozen artifact bundle |
