@@ -18,6 +18,7 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 import os
+from src.deterministic_config import load_deterministic_config
 
 
 def load_config(path: str) -> dict:
@@ -29,7 +30,7 @@ def resolve_experiment(exp: dict, defaults: dict) -> dict:
     """Merge experiment-specific config with suite defaults."""
     default_max_turns = defaults.get("max_turns", 6)
     resolved_max_turns = exp.get("max_turns", default_max_turns)
-    return {
+    resolved = {
         "repo": exp["repo"],
         "source_prefixes": exp.get("source_prefixes"),
         "n_issues": exp.get("n_issues", defaults.get("n_issues", 10)),
@@ -107,7 +108,15 @@ def resolve_experiment(exp: dict, defaults: dict) -> dict:
         "deterministic_w_pen": float(
             exp.get("deterministic_w_pen", defaults.get("deterministic_w_pen", 0.05))
         ),
+        "deterministic_config_path": exp.get(
+            "deterministic_config_path",
+            defaults.get("deterministic_config_path"),
+        ),
     }
+    if resolved.get("deterministic_config_path"):
+        overrides = load_deterministic_config(resolved["deterministic_config_path"])
+        resolved.update(overrides)
+    return resolved
 
 
 def run_single(
@@ -212,6 +221,7 @@ def _write_repeat_aggregate(
         "snapshot_commit": exp.get("snapshot_commit"),
         "manifest_instance_ids": list(exp.get("instance_ids") or []),
         "deterministic_retrieval": {
+            "config_path": exp.get("deterministic_config_path"),
             "seed_k": exp.get("deterministic_seed_k", 8),
             "depth": exp.get("deterministic_depth", 2),
             "neighbor_cap": exp.get("deterministic_neighbor_cap", 12),

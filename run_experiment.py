@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 
 from dotenv import load_dotenv
+from src.deterministic_config import load_deterministic_config
 from src.run_ids import build_suite_id
 
 ALL_METHODS = [
@@ -384,7 +385,30 @@ def main():
         default=0.05,
         help="Deterministic retriever low-confidence penalty weight (default: 0.05).",
     )
+    parser.add_argument(
+        "--deterministic-config-path",
+        type=str,
+        default=None,
+        help=(
+            "Optional JSON/YAML file with deterministic retrieval tuning parameters. "
+            "Values in this file override CLI deterministic_* flags."
+        ),
+    )
+    parser.add_argument(
+        "--methods",
+        type=str,
+        default=None,
+        help=(
+            "Optional comma-separated subset of methods to execute. "
+            f"Allowed: {', '.join(ALL_METHODS)}"
+        ),
+    )
     args = parser.parse_args()
+
+    if args.deterministic_config_path:
+        deterministic_overrides = load_deterministic_config(args.deterministic_config_path)
+        for key, value in deterministic_overrides.items():
+            setattr(args, key, value)
 
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -401,6 +425,15 @@ def main():
     requested_n_issues = len(manifest_instance_ids) if manifest_instance_ids else args.n_issues
     manager_max_turns = args.manager_max_turns if args.manager_max_turns is not None else args.max_turns
     rag_max_turns = args.rag_max_turns if args.rag_max_turns is not None else args.max_turns
+    enabled_methods = tuple(
+        method.strip()
+        for method in (args.methods or "").split(",")
+        if method.strip()
+    ) if args.methods else tuple(ALL_METHODS)
+    unknown_methods = sorted(set(enabled_methods) - set(ALL_METHODS))
+    if unknown_methods:
+        print(f"ERROR: unknown methods in --methods: {', '.join(unknown_methods)}")
+        sys.exit(1)
 
     if args.repeats < 1:
         print("ERROR: --repeats must be >= 1")
@@ -465,6 +498,7 @@ def main():
             deterministic_w_conf=args.deterministic_w_conf,
             deterministic_w_hint=args.deterministic_w_hint,
             deterministic_w_pen=args.deterministic_w_pen,
+            methods=enabled_methods,
         )
         if isinstance(summary, dict):
             summaries.append(summary)
@@ -502,8 +536,10 @@ def main():
             "evaluation_track": args.evaluation_track,
             "snapshot_commit": args.snapshot_commit,
             "seed": args.seed,
+            "enabled_methods": list(enabled_methods),
             "manifest_instance_ids": list(manifest_instance_ids or []),
             "deterministic_retrieval": {
+                "config_path": args.deterministic_config_path,
                 "seed_k": args.deterministic_seed_k,
                 "depth": args.deterministic_depth,
                 "neighbor_cap": args.deterministic_neighbor_cap,

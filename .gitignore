@@ -12,15 +12,26 @@ build/
 venv/
 env/
 
-# Environment variables (contains API keys)
+# Environment variables (API keys — NEVER commit)
 .env
 
-# Cloned repositories (downloaded on demand)
-flask_repo/
+# Cloned repositories (re-cloned on demand by pipeline)
 *_repo/
 
-# Experiment results (generated data)
+# Experiment results and logs (generated data, up to hundreds of MB)
 results/
+logs/
+
+# LaTeX build artifacts (generated from source; do not commit)
+research_report/*.aux
+research_report/*.log
+research_report/*.out
+research_report/*.fdb_latexmk
+research_report/*.fls
+research_report/*.blg
+
+# Background material — private researcher notes, professor docs, prior art
+background/
 
 # IDE / editor
 .vscode/
@@ -35,6 +46,3 @@ results/
 # OS
 .DS_Store
 Thumbs.db
-
-# Reference material / large local assets
-previous_work/

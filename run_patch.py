@@ -22,7 +22,7 @@ Manifest format (YAML):
     instance_ids:
       - pallets__flask-4045
       - psf__requests-1713
-    retrieval_method: gm_progressive   # or gm_deterministic
+    retrieval_method: gm_progressive   # gm_deterministic | rag_progressive | oracle | none
     manager_max_turns: 4
     patch_max_turns: 3
     patch_max_output_tokens: 4096
@@ -30,6 +30,7 @@ Manifest format (YAML):
 """
 
 import argparse
+import concurrent.futures
 import httpx
 import json
 import os
@@ -43,7 +44,27 @@ import yaml
 from dotenv import load_dotenv
 
 DEFAULT_MANAGER_MODEL = "gemini-3-flash-preview"
-DEFAULT_PATCH_MODEL = "gemini-2.5-pro"
+DEFAULT_PATCH_MODEL = "gemini-3-flash-preview"
+
+
+def _checkout_issue_commit(
+    *,
+    repo_git,
+    snapshot_commit: str | None,
+    issue: dict,
+    current_commit: str | None,
+    issue_id: str | None = None,
+) -> str | None:
+    """Checkout the commit for this issue when needed and return current commit."""
+    target_commit = snapshot_commit or issue.get("base_commit")
+    if target_commit and target_commit != current_commit:
+        if issue_id:
+            print(f"    Checking out {target_commit[:12]} for {issue_id}...")
+        else:
+            print(f"    Checking out {target_commit[:12]}...")
+        repo_git.git.checkout(target_commit, force=True)
+        return target_commit
+    return current_commit
 
 
 def _check_docker() -> bool:
@@ -90,6 +111,7 @@ def _run_with_rate_limit_backoff(
     backoff_multiplier: float = 2.0,
     max_delay_s: float = 120.0,
     jitter_s: float = 1.0,
+    deadline_monotonic: float | None = None,
 ):
     """
     Run callable with retries on transient API limits/failures.
@@ -98,13 +120,32 @@ def _run_with_rate_limit_backoff(
     """
     delay_s = max(initial_delay_s, 0.0)
     for attempt in range(max_retries + 1):
+        if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+            raise TimeoutError(f"{label} timed out due to instance wall-clock budget")
         try:
-            return callable_fn()
+            if deadline_monotonic is None:
+                return callable_fn()
+
+            remaining_s = deadline_monotonic - time.monotonic()
+            if remaining_s <= 0:
+                raise TimeoutError(f"{label} timed out due to instance wall-clock budget")
+
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            future = executor.submit(callable_fn)
+            try:
+                return future.result(timeout=remaining_s)
+            except concurrent.futures.TimeoutError as timeout_exc:
+                future.cancel()
+                raise TimeoutError(f"{label} timed out due to instance wall-clock budget") from timeout_exc
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
         except Exception as exc:
             should_retry = _is_transient_api_error(exc) and attempt < max_retries
             if not should_retry:
                 raise
             sleep_s = min(delay_s, max_delay_s) + max(0.0, random.uniform(0.0, max(0.0, jitter_s)))
+            if deadline_monotonic is not None and (time.monotonic() + sleep_s) >= deadline_monotonic:
+                raise TimeoutError(f"{label} timed out due to instance wall-clock budget") from exc
             print(
                 f"    {label} transient API error "
                 f"(attempt {attempt + 1}/{max_retries + 1}): {type(exc).__name__}; "
@@ -131,6 +172,29 @@ def _run_retrieval(
     """Run one retrieval method for one issue."""
     from src.evaluation import normalize_file_paths, prepare_issue_text
     from src.path_resolution import canonicalize_file_paths
+
+    if method == "none":
+        return [], {
+            "prompt_tokens": 0,
+            "candidate_tokens": 0,
+            "total_tokens": 0,
+            "tool_calls": 0,
+            "stop_reason": "no_retrieval",
+        }
+
+    if method == "oracle":
+        from src.datasets.adapters import extract_gold_files_from_patch
+
+        oracle_files = extract_gold_files_from_patch(issue.get("patch", ""))
+        if not oracle_files:
+            oracle_files = issue.get("gold_files", [])
+        return normalize_file_paths(oracle_files), {
+            "prompt_tokens": 0,
+            "candidate_tokens": 0,
+            "total_tokens": 0,
+            "tool_calls": 0,
+            "stop_reason": "oracle",
+        }
 
     query = prepare_issue_text(
         issue.get("problem_statement", ""),
@@ -171,13 +235,22 @@ def _run_retrieval(
     else:
         raise ValueError(f"Unsupported retrieval method: {method}")
 
-    graph_file_paths = {
-        str(node_id)
-        for node_id, node_data in graph.nodes(data=True)
-        if node_data.get("type") == "file" and str(node_id).endswith(".py")
-    }
+    valid_file_paths: set[str] = set()
+    if graph is not None:
+        valid_file_paths = {
+            str(node_id)
+            for node_id, node_data in graph.nodes(data=True)
+            if node_data.get("type") == "file" and str(node_id).endswith(".py")
+        }
+    elif rag_index is not None:
+        valid_file_paths = {
+            str(chunk.get("file", ""))
+            for chunk in getattr(rag_index, "chunks", [])
+            if str(chunk.get("file", "")).endswith(".py")
+        }
+
     normalized = normalize_file_paths(files)
-    canonical = canonicalize_file_paths(normalized, graph_file_paths)
+    canonical = canonicalize_file_paths(normalized, valid_file_paths) if valid_file_paths else normalized
     return canonical, tokens
 
 
@@ -230,6 +303,160 @@ def _compute_patch_robustness_metrics(per_instance_results: list[dict]) -> dict:
     }
 
 
+def _build_method_scoped_commit_context(
+    *,
+    retrieval_method: str,
+    repo_dir: str,
+    prefixes: tuple[str, ...] | None,
+    client,
+    graph_builder_cls,
+    graph_index_cls,
+    rag_index_cls,
+    validate_commit_context_fn,
+) -> dict:
+    """Build only the index family needed by the retrieval method."""
+    context = {
+        "graph": None,
+        "graph_index": None,
+        "rag_index": None,
+        "graph_file_paths": set(),
+        "retrieval_setup_tokens": 0,
+        "setup_tokens_graph_built": 0,
+        "setup_tokens_rag_built": 0,
+        "setup_tokens_method_accounted": 0,
+    }
+
+    gm_family = {"gm_progressive", "gm_deterministic", "gm_baseline"}
+    rag_family = {"rag_progressive", "rag_baseline", "raw_rag_function", "raw_rag_fixed"}
+
+    if retrieval_method in gm_family:
+        print("    Building graph index...")
+        builder = graph_builder_cls(repo_dir, include_prefixes=prefixes)
+        graph = builder.build()
+        print(
+            f"      Graph: {graph.number_of_nodes()} nodes, "
+            f"{graph.number_of_edges()} edges"
+        )
+        graph_index = graph_index_cls(graph, client)
+        graph_index.build()
+        graph_tokens = int(getattr(graph_index, "embedding_tokens_estimate", 0) or 0)
+
+        setup_costs = {
+            "gm_progressive": {"embedding_tokens": graph_tokens},
+            "gm_deterministic": {"embedding_tokens": graph_tokens},
+            "gm_baseline": {"embedding_tokens": graph_tokens},
+        }
+        validate_commit_context_fn(
+            {"graph_file_paths": set(), "setup_costs": setup_costs},
+            required_methods=(retrieval_method,),
+        )
+        context.update(
+            {
+                "graph": graph,
+                "graph_index": graph_index,
+                "graph_file_paths": {
+                    str(node_id)
+                    for node_id, node_data in graph.nodes(data=True)
+                    if node_data.get("type") == "file"
+                },
+                "retrieval_setup_tokens": graph_tokens,
+                "setup_tokens_graph_built": graph_tokens,
+                "setup_tokens_method_accounted": graph_tokens,
+            }
+        )
+        return context
+
+    if retrieval_method in rag_family:
+        print("    Building RAG index...")
+        rag_chunk_strategy = "fixed" if retrieval_method == "raw_rag_fixed" else "function"
+        rag_index = rag_index_cls(
+            repo_dir,
+            client,
+            chunk_strategy=rag_chunk_strategy,
+            include_prefixes=prefixes,
+        )
+        rag_index.build()
+        rag_tokens = int(getattr(rag_index, "embedding_tokens_estimate", 0) or 0)
+
+        setup_costs = {
+            "rag_progressive": {"embedding_tokens": rag_tokens},
+            "rag_baseline": {"embedding_tokens": rag_tokens},
+            "raw_rag_function": {"embedding_tokens": rag_tokens},
+            "raw_rag_fixed": {"embedding_tokens": rag_tokens},
+        }
+        validate_commit_context_fn(
+            {"graph_file_paths": set(), "setup_costs": setup_costs},
+            required_methods=(retrieval_method,),
+        )
+        context.update(
+            {
+                "rag_index": rag_index,
+                "graph_file_paths": {
+                    str(chunk.get("file", ""))
+                    for chunk in getattr(rag_index, "chunks", [])
+                    if str(chunk.get("file", ""))
+                },
+                "retrieval_setup_tokens": rag_tokens,
+                "setup_tokens_rag_built": rag_tokens,
+                "setup_tokens_method_accounted": rag_tokens,
+            }
+        )
+        return context
+
+    return context
+
+
+def _compute_cost_summary_fields(
+    *,
+    per_instance_results: list[dict],
+    retrieval_setup_tokens: int,
+    harness_results: dict | None,
+    setup_tokens_graph_built: int = 0,
+    setup_tokens_rag_built: int = 0,
+    setup_tokens_method_accounted: int | None = None,
+) -> dict:
+    retrieval_runtime_tokens = sum(
+        int((result.get("retrieval_tokens") or {}).get("total_tokens", 0) or 0)
+        for result in per_instance_results
+    )
+    patch_runtime_tokens = sum(
+        int((result.get("patch_tokens") or {}).get("total_tokens", 0) or 0)
+        for result in per_instance_results
+    )
+    total_cost_tokens = int(retrieval_setup_tokens or 0) + retrieval_runtime_tokens + patch_runtime_tokens
+
+    resolved_instances = []
+    n_resolved = None
+    if isinstance(harness_results, dict):
+        raw_instances = harness_results.get("resolved_instances", [])
+        if isinstance(raw_instances, list):
+            resolved_instances = sorted(str(i) for i in raw_instances)
+        if _tokenish_number(harness_results.get("n_resolved")):
+            n_resolved = int(harness_results.get("n_resolved", 0))
+        elif resolved_instances:
+            n_resolved = len(resolved_instances)
+
+    cost_per_resolved_issue = None
+    if isinstance(n_resolved, int) and n_resolved > 0:
+        cost_per_resolved_issue = total_cost_tokens / n_resolved
+
+    if setup_tokens_method_accounted is None:
+        setup_tokens_method_accounted = int(retrieval_setup_tokens or 0)
+
+    return {
+        "retrieval_setup_tokens": int(retrieval_setup_tokens or 0),
+        "setup_tokens_graph_built": int(setup_tokens_graph_built or 0),
+        "setup_tokens_rag_built": int(setup_tokens_rag_built or 0),
+        "setup_tokens_method_accounted": int(setup_tokens_method_accounted or 0),
+        "retrieval_runtime_tokens": retrieval_runtime_tokens,
+        "patch_runtime_tokens": patch_runtime_tokens,
+        "total_cost_tokens": total_cost_tokens,
+        "n_resolved": n_resolved,
+        "resolved_instances": resolved_instances,
+        "cost_per_resolved_issue": cost_per_resolved_issue,
+    }
+
+
 def _git_apply_check(repo_dir: str, patch_text: str) -> tuple[bool, str]:
     """Validate a patch against a checked-out repo context."""
     result = subprocess.run(
@@ -267,6 +494,27 @@ def _build_apply_failure_correction_context(apply_stderr: str) -> str:
         "Common causes: wrong hunk context, wrong file path, or malformed unified diff.\n"
         "Regenerate a complete, valid unified diff."
     )
+
+
+def _make_swebench_prediction(
+    *,
+    instance_id: str,
+    retrieval_method: str,
+    patch_text: str | None,
+    patch_status: str,
+) -> dict:
+    """Build a single SWE-bench prediction entry.
+
+    The harness is the ground truth evaluator.  Submit the generated patch
+    regardless of whether our local git-apply check passed (B7 fix).  Our local
+    check is only a diagnostic used in the repair-retry loop; submitting an
+    empty string for apply_failed patches silently zeros out resolved_rate.
+    """
+    return {
+        "instance_id": instance_id,
+        "model_name_or_path": f"graphmanager-{retrieval_method}",
+        "model_patch": patch_text or "",
+    }
 
 
 def _build_retrieval_retry_feedback(previous_files: list[str], failure_hint: str) -> str:
@@ -477,18 +725,170 @@ def _extract_harness_results_from_instance_reports(*, harness_run_id: str, n_tot
     }
 
 
+def _run_evaluate_only(run_dir: str, modal: bool = False) -> dict:
+    """
+    Stage 2 (evaluate-only): run SWE-bench harness on an existing predictions.json.
+
+    Loads patch_summary.json from *run_dir*, runs the harness, updates cost fields,
+    overwrites patch_summary.json, and returns the updated summary dict.
+    """
+    load_dotenv()
+    results_path = Path(run_dir)
+    summary_path = results_path / "patch_summary.json"
+    if not summary_path.exists():
+        print(f"ERROR: No patch_summary.json found in {run_dir}")
+        sys.exit(1)
+
+    summary = json.loads(summary_path.read_text())
+    run_id = summary["run_id"]
+    dataset_name = summary["dataset_name"]
+    retrieval_method = summary.get("retrieval_method", "unknown")
+    predictions_path = Path(summary["predictions_path"])
+    per_instance = summary.get("per_instance", [])
+    instance_ids = [r["instance_id"] for r in per_instance]
+    n_total = summary.get("n_instances", len(instance_ids))
+
+    # Recover split from the manifest if it still exists, otherwise default to "test"
+    split = "test"
+    manifest_path = summary.get("manifest", "")
+    if manifest_path and Path(manifest_path).exists():
+        try:
+            manifest = yaml.safe_load(Path(manifest_path).read_text())
+            split = manifest.get("split", "test")
+        except Exception:
+            pass
+
+    if not predictions_path.exists():
+        print(f"ERROR: predictions.json not found at {predictions_path}")
+        sys.exit(1)
+    if not instance_ids:
+        print("ERROR: No instance IDs found in summary — cannot run harness")
+        sys.exit(1)
+
+    print(f"Evaluate-only mode")
+    print(f"  Run dir:      {run_dir}")
+    print(f"  Run ID:       {run_id}")
+    print(f"  Dataset:      {dataset_name} ({split})")
+    print(f"  Instances:    {n_total}")
+    print(f"  Predictions:  {predictions_path}")
+    print(f"  Modal:        {modal}")
+
+    if modal:
+        docker_ok = True
+    else:
+        docker_ok = _check_docker()
+    if not docker_ok:
+        print("\nWARNING: Docker daemon not reachable.")
+        print("  Use --modal for Modal cloud evaluation.")
+        sys.exit(1)
+
+    print("\n=== Running SWE-bench harness evaluation ===")
+    try:
+        from swebench.harness.run_evaluation import main as swebench_eval
+        harness_run_id = f"graphmanager_{run_id}"
+        harness_report_dir = results_path / "harness_reports"
+        harness_report_dir.mkdir(exist_ok=True)
+
+        eval_report_path = swebench_eval(
+            dataset_name=dataset_name,
+            split=split,
+            instance_ids=instance_ids,
+            predictions_path=str(predictions_path),
+            max_workers=1 if modal else 4,
+            force_rebuild=False,
+            cache_level="env",
+            clean=False,
+            open_file_limit=4096,
+            run_id=harness_run_id,
+            timeout=300,
+            namespace=None,
+            rewrite_reports=False,
+            modal=modal,
+            report_dir=str(harness_report_dir),
+        )
+
+        report_path = None
+        if eval_report_path is not None:
+            candidate = Path(str(eval_report_path))
+            if candidate.exists():
+                report_path = candidate
+        if report_path is None:
+            report_path = _discover_harness_report_path(
+                harness_run_id=harness_run_id,
+                retrieval_method=retrieval_method,
+                harness_report_dir=harness_report_dir,
+            )
+
+        if report_path and report_path.exists():
+            payload = json.loads(report_path.read_text())
+            parsed = _extract_harness_results_from_payload(payload, n_total=n_total)
+            if parsed:
+                parsed["report_path"] = str(report_path)
+                summary["harness_results"] = parsed
+
+        if summary.get("harness_results") is None:
+            fallback = _extract_harness_results_from_instance_reports(
+                harness_run_id=harness_run_id,
+                n_total=n_total,
+            )
+            if fallback:
+                summary["harness_results"] = fallback
+
+        if summary.get("harness_results"):
+            hr = summary["harness_results"]
+            print(f"  Resolved: {hr['n_resolved']}/{n_total} ({hr['resolved_rate']:.1%})")
+        else:
+            expected = harness_report_dir / f"{harness_run_id}.json"
+            print(f"  WARNING: harness report not found at expected location {expected}")
+    except Exception as e:
+        print(f"  ERROR during harness evaluation: {e}")
+        summary["harness_error"] = str(e)
+
+    # Recompute cost fields now that harness_results is known
+    summary.update(
+        _compute_cost_summary_fields(
+            per_instance_results=per_instance,
+            retrieval_setup_tokens=summary.get("retrieval_setup_tokens", 0),
+            harness_results=summary.get("harness_results"),
+            setup_tokens_graph_built=summary.get("setup_tokens_graph_built", 0),
+            setup_tokens_rag_built=summary.get("setup_tokens_rag_built", 0),
+            setup_tokens_method_accounted=summary.get("setup_tokens_method_accounted"),
+        )
+    )
+
+    summary_path.write_text(json.dumps(summary, indent=2))
+    print(f"\nSummary updated: {summary_path}")
+    if summary.get("cost_per_resolved_issue") is not None:
+        print(f"Cost/resolved:  {summary['cost_per_resolved_issue']:,.1f} tokens/resolved")
+
+    return summary
+
+
 def run_patch_pipeline(
     manifest_path: str,
     results_dir: str,
     *,
     evaluate: bool = False,
     dry_run: bool = False,
+    modal: bool = False,
+    evaluate_only: bool = False,
+    run_dir: str | None = None,
 ) -> dict:
     """
     Run retrieval → patch generation → optional evaluation for all instances in a manifest.
 
+    When *evaluate_only* is True, skips patch generation entirely and runs the
+    SWE-bench harness on an existing predictions.json from a prior Stage-1 run.
+    *run_dir* must point to that run's directory (e.g. results/patch_runs/20260222_210339).
+
     Returns summary dict with per-instance results and aggregate metrics.
     """
+    if evaluate_only:
+        if not run_dir:
+            print("ERROR: --evaluate-only requires --run-dir <path-to-existing-run>")
+            sys.exit(1)
+        return _run_evaluate_only(run_dir=run_dir, modal=modal)
+
     load_dotenv()
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -506,6 +906,8 @@ def run_patch_pipeline(
     patch_max_file_chars = int(manifest.get("patch_max_file_chars", 8000))
     patch_apply_repair_retries = min(2, max(0, int(manifest.get("patch_apply_repair_retries", 2))))
     patch_retrieval_retry_max = min(1, max(0, int(manifest.get("patch_retrieval_retry_max", 1))))
+    retrieval_redact_paths_in_issue_text = bool(manifest.get("retrieval_redact_paths_in_issue_text", True))
+    patch_redact_paths_in_issue_text = bool(manifest.get("patch_redact_paths_in_issue_text", False))
     manager_model, patch_model = _resolve_model_config(manifest)
     source_prefixes = manifest.get("source_prefixes") or None
     repo_name = manifest.get("repo_name", "")
@@ -516,6 +918,7 @@ def run_patch_pipeline(
     rate_limit_max_delay_s = float(manifest.get("rate_limit_max_delay_s", 120.0))
     rate_limit_jitter_s = float(manifest.get("rate_limit_jitter_s", 1.0))
     per_instance_cooldown_s = float(manifest.get("per_instance_cooldown_s", 0.0))
+    instance_wall_clock_cap_s = float(manifest.get("instance_wall_clock_cap_s", 0.0))
     api_timeout_s = int(manifest.get("api_timeout_s", 120))
     run_id = time.strftime("%Y%m%d_%H%M%S")
 
@@ -533,7 +936,10 @@ def run_patch_pipeline(
     print(f"Manager max turns: {manager_max_turns}")
     print(f"Patch max output tokens: {patch_max_output_tokens}")
     print(f"Patch max file chars: {patch_max_file_chars}")
+    print(f"Patch redact issue paths: {patch_redact_paths_in_issue_text}")
     print(f"API timeout (s): {api_timeout_s}")
+    if instance_wall_clock_cap_s > 0:
+        print(f"Instance wall-clock cap (s): {instance_wall_clock_cap_s}")
     print(f"Results dir: {results_path}")
 
     from google import genai
@@ -575,6 +981,10 @@ def run_patch_pipeline(
 
     per_instance_results = []
     swebench_predictions = {}  # for harness: {instance_id: {...}}
+    run_retrieval_setup_tokens = 0
+    run_setup_tokens_graph_built = 0
+    run_setup_tokens_rag_built = 0
+    run_setup_tokens_method_accounted = 0
 
     for repo, repo_issues in by_repo.items():
         print(f"\n=== Repo: {repo} ({len(repo_issues)} issues) ===")
@@ -584,44 +994,11 @@ def run_patch_pipeline(
 
         import git as _git
         repo_git = _git.Repo(repo_dir)
-        commit = snapshot_commit or repo_issues[0].get("base_commit")
-        if commit:
-            print(f"  Checking out {commit[:12]}...")
-            repo_git.git.checkout(commit, force=True)
-
-        # Build indices
-        print("  Building graph and RAG indices...")
+        current_commit = None
         prefixes = tuple(dict.fromkeys(source_prefixes)) if source_prefixes else None
-        builder = GraphBuilder(repo_dir, include_prefixes=prefixes)
-        graph = builder.build()
-        print(f"    Graph: {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges")
-
-        graph_index = GraphIndex(graph, client)
-        graph_index.build()
-
-        rag_index = RAGIndex(repo_dir, client, chunk_strategy="function", include_prefixes=prefixes)
-        rag_index.build()
-
-        # Validate (raises if empty)
         from src.evaluation import NO_BASE_COMMIT
-        setup_costs = {
-            "gm_progressive": {"embedding_tokens": int(graph_index.embedding_tokens_estimate)},
-            "gm_deterministic": {"embedding_tokens": int(graph_index.embedding_tokens_estimate)},
-            "gm_baseline": {"embedding_tokens": int(graph_index.embedding_tokens_estimate)},
-            "rag_progressive": {"embedding_tokens": int(rag_index.embedding_tokens_estimate)},
-            "rag_baseline": {"embedding_tokens": int(rag_index.embedding_tokens_estimate)},
-            "raw_rag_function": {"embedding_tokens": int(rag_index.embedding_tokens_estimate)},
-            "raw_rag_fixed": {"embedding_tokens": int(rag_index.embedding_tokens_estimate)},
-        }
-        validate_commit_context({"graph_file_paths": set(), "setup_costs": setup_costs})
-
-        patch_agent = PatchAgent(
-            repo_dir,
-            client,
-            model=patch_model,
-            max_file_chars=patch_max_file_chars,
-            max_output_tokens=patch_max_output_tokens,
-        )
+        commit_context_cache: dict[str, dict] = {}
+        patch_agent_cache: dict[str, PatchAgent] = {}
         det_cfg = {
             "seed_k": manifest.get("deterministic_seed_k", 8),
             "depth": manifest.get("deterministic_depth", 2),
@@ -631,6 +1008,55 @@ def run_patch_pipeline(
         for issue in repo_issues:
             iid = issue["instance_id"]
             print(f"\n  [{iid}]")
+            current_commit = _checkout_issue_commit(
+                repo_git=repo_git,
+                snapshot_commit=snapshot_commit,
+                issue=issue,
+                current_commit=current_commit,
+                issue_id=iid,
+            )
+            used_commit = repo_git.head.commit.hexsha
+            commit_key = used_commit or NO_BASE_COMMIT
+            if current_commit:
+                print(f"    Commit: {current_commit[:12]}")
+            else:
+                print(f"    Commit: {used_commit[:12]}")
+            instance_start_monotonic = time.monotonic()
+            instance_deadline = (
+                instance_start_monotonic + instance_wall_clock_cap_s
+                if instance_wall_clock_cap_s > 0
+                else None
+            )
+
+            context = commit_context_cache.get(commit_key)
+            if context is None:
+                context = _build_method_scoped_commit_context(
+                    retrieval_method=retrieval_method,
+                    repo_dir=repo_dir,
+                    prefixes=prefixes,
+                    client=client,
+                    graph_builder_cls=GraphBuilder,
+                    graph_index_cls=GraphIndex,
+                    rag_index_cls=RAGIndex,
+                    validate_commit_context_fn=validate_commit_context,
+                )
+                context["used_commit"] = used_commit
+                commit_context_cache[commit_key] = context
+                run_retrieval_setup_tokens += int(context.get("retrieval_setup_tokens", 0) or 0)
+                run_setup_tokens_graph_built += int(context.get("setup_tokens_graph_built", 0) or 0)
+                run_setup_tokens_rag_built += int(context.get("setup_tokens_rag_built", 0) or 0)
+                run_setup_tokens_method_accounted += int(context.get("setup_tokens_method_accounted", 0) or 0)
+
+            patch_agent = patch_agent_cache.get(commit_key)
+            if patch_agent is None:
+                patch_agent = PatchAgent(
+                    repo_dir,
+                    client,
+                    model=patch_model,
+                    max_file_chars=patch_max_file_chars,
+                    max_output_tokens=patch_max_output_tokens,
+                )
+                patch_agent_cache[commit_key] = patch_agent
 
             # --- Retrieval ---
             t0 = time.time()
@@ -643,14 +1069,15 @@ def run_patch_pipeline(
                     retrieved_files, retrieval_tokens = _run_with_rate_limit_backoff(
                         lambda: _run_retrieval(
                             issue,
-                            graph=graph,
-                            graph_index=graph_index,
-                            rag_index=rag_index,
+                            graph=context["graph"],
+                            graph_index=context["graph_index"],
+                            rag_index=context["rag_index"],
                             client=client,
                             method=retrieval_method,
                             manager_model=manager_model,
                             manager_max_turns=manager_max_turns,
                             deterministic_config=det_cfg,
+                            redact_paths=retrieval_redact_paths_in_issue_text,
                         ),
                         label=f"retrieval[{iid}]",
                         max_retries=rate_limit_max_retries,
@@ -658,7 +1085,20 @@ def run_patch_pipeline(
                         backoff_multiplier=rate_limit_backoff_multiplier,
                         max_delay_s=rate_limit_max_delay_s,
                         jitter_s=rate_limit_jitter_s,
+                        deadline_monotonic=instance_deadline,
                     )
+                except TimeoutError as exc:
+                    retrieval_error = exc
+                    retrieved_files = []
+                    retrieval_tokens = {
+                        "prompt_tokens": 0,
+                        "candidate_tokens": 0,
+                        "total_tokens": 0,
+                        "tool_calls": 0,
+                        "stop_reason": "timeout_budget_exceeded",
+                        "error": str(exc),
+                    }
+                    print(f"    Retrieval timed out: {exc}")
                 except Exception as exc:
                     retrieval_error = exc
                     retrieved_files = []
@@ -689,11 +1129,18 @@ def run_patch_pipeline(
                     "candidate_tokens": 0,
                     "total_tokens": 0,
                     "tool_calls": 0,
-                    "stop_reason": "skipped_due_to_retrieval_error",
+                    "stop_reason": (
+                        "timeout_budget_exceeded"
+                        if isinstance(retrieval_error, TimeoutError)
+                        else "skipped_due_to_retrieval_error"
+                    ),
                 }
-                status = "no_patch"
+                status = "timeout_budget_exceeded" if isinstance(retrieval_error, TimeoutError) else "no_patch"
             else:
-                issue_text = prepare_issue_text(issue.get("problem_statement", ""))
+                issue_text = prepare_issue_text(
+                    issue.get("problem_statement", ""),
+                    redact_paths=patch_redact_paths_in_issue_text,
+                )
 
                 def patch_generate_fn(*, retrieved_files: list[str], correction_context: str | None):
                     return _run_with_rate_limit_backoff(
@@ -709,6 +1156,7 @@ def run_patch_pipeline(
                         backoff_multiplier=rate_limit_backoff_multiplier,
                         max_delay_s=rate_limit_max_delay_s,
                         jitter_s=rate_limit_jitter_s,
+                        deadline_monotonic=instance_deadline,
                     )
 
                 def apply_check_fn(patch_candidate: str):
@@ -718,14 +1166,15 @@ def run_patch_pipeline(
                     return _run_with_rate_limit_backoff(
                         lambda: _run_retrieval(
                             issue,
-                            graph=graph,
-                            graph_index=graph_index,
-                            rag_index=rag_index,
+                            graph=context["graph"],
+                            graph_index=context["graph_index"],
+                            rag_index=context["rag_index"],
                             client=client,
                             method=retrieval_method,
                             manager_model=manager_model,
                             manager_max_turns=manager_max_turns,
                             deterministic_config=det_cfg,
+                            redact_paths=retrieval_redact_paths_in_issue_text,
                             retry_feedback=failure_hint,
                         ),
                         label=f"retrieval_retry[{iid}]",
@@ -734,6 +1183,7 @@ def run_patch_pipeline(
                         backoff_multiplier=rate_limit_backoff_multiplier,
                         max_delay_s=rate_limit_max_delay_s,
                         jitter_s=rate_limit_jitter_s,
+                        deadline_monotonic=instance_deadline,
                     )
 
                 try:
@@ -758,7 +1208,19 @@ def run_patch_pipeline(
                         retrieval_token_steps.append(retry_event.get("retrieval_tokens", {}))
                     if len(retrieval_token_steps) > 1:
                         retrieval_tokens = _merge_token_usages(retrieval_token_steps)
-                    retrieval_tokens["retrieval_retries_used"] = flow_result["retrieval_retries_used"]
+                        retrieval_tokens["retrieval_retries_used"] = flow_result["retrieval_retries_used"]
+                except TimeoutError as exc:
+                    patch_text = None
+                    patch_tokens = {
+                        "prompt_tokens": 0,
+                        "candidate_tokens": 0,
+                        "total_tokens": 0,
+                        "tool_calls": 0,
+                        "stop_reason": "timeout_budget_exceeded",
+                        "error": str(exc),
+                    }
+                    status = "timeout_budget_exceeded"
+                    print(f"    Patch generation timed out: {exc}")
                 except Exception as exc:
                     patch_text = None
                     patch_tokens = {
@@ -786,11 +1248,12 @@ def run_patch_pipeline(
                 patch_file = None
 
             # Build SWE-bench prediction entry
-            swebench_predictions[iid] = {
-                "instance_id": iid,
-                "model_name_or_path": f"graphmanager-{retrieval_method}",
-                "model_patch": patch_text if status == "patched" else "",
-            }
+            swebench_predictions[iid] = _make_swebench_prediction(
+                instance_id=iid,
+                retrieval_method=retrieval_method,
+                patch_text=patch_text,
+                patch_status=status,
+            )
 
             per_instance_results.append({
                 "instance_id": iid,
@@ -809,6 +1272,8 @@ def run_patch_pipeline(
                 ),
                 "retrieval_time_s": round(retrieval_time, 2),
                 "patch_time_s": round(patch_time, 2),
+                "total_time_s": round(time.monotonic() - instance_start_monotonic, 2),
+                "timeout_budget_exceeded": status == "timeout_budget_exceeded",
             })
 
     # Save predictions file for SWE-bench harness
@@ -820,6 +1285,14 @@ def run_patch_pipeline(
     n_patched = robustness["n_apply_ok"]
     n_total = len(per_instance_results)
     total_tokens = sum(r["total_tokens"] for r in per_instance_results)
+    cost_fields = _compute_cost_summary_fields(
+        per_instance_results=per_instance_results,
+        retrieval_setup_tokens=run_retrieval_setup_tokens,
+        harness_results=None,
+        setup_tokens_graph_built=run_setup_tokens_graph_built,
+        setup_tokens_rag_built=run_setup_tokens_rag_built,
+        setup_tokens_method_accounted=run_setup_tokens_method_accounted,
+    )
 
     summary = {
         "run_id": run_id,
@@ -837,14 +1310,19 @@ def run_patch_pipeline(
         "predictions_path": str(predictions_path),
         "harness_results": None,
         "per_instance": per_instance_results,
+        **cost_fields,
     }
 
     # --- SWE-bench harness evaluation ---
     if evaluate:
-        docker_ok = _check_docker()
+        if modal:
+            docker_ok = True  # Modal uses its own Sandbox runtime; no local Docker needed
+        else:
+            docker_ok = _check_docker()
         if not docker_ok:
             print("\nWARNING: Docker daemon not reachable. Skipping harness evaluation.")
             print("  Start Docker and rerun with: python run_patch.py --evaluate-only")
+            print("  Or use Modal (no local Docker needed): python run_patch.py --evaluate --modal")
             summary["harness_skipped_reason"] = "docker_not_available"
         else:
             print("\n=== Running SWE-bench harness evaluation ===")
@@ -859,7 +1337,7 @@ def run_patch_pipeline(
                     split=split,
                     instance_ids=instance_ids,
                     predictions_path=str(predictions_path),
-                    max_workers=2,
+                    max_workers=1 if modal else 4,
                     force_rebuild=False,
                     cache_level="env",
                     clean=False,
@@ -868,7 +1346,7 @@ def run_patch_pipeline(
                     timeout=300,
                     namespace=None,
                     rewrite_reports=False,
-                    modal=False,
+                    modal=modal,
                     report_dir=str(harness_report_dir),
                 )
 
@@ -910,6 +1388,18 @@ def run_patch_pipeline(
                 print(f"  ERROR during harness evaluation: {e}")
                 summary["harness_error"] = str(e)
 
+    # Refresh derived cost metrics once harness results (if any) are known.
+    summary.update(
+        _compute_cost_summary_fields(
+            per_instance_results=per_instance_results,
+            retrieval_setup_tokens=run_retrieval_setup_tokens,
+            harness_results=summary.get("harness_results"),
+            setup_tokens_graph_built=run_setup_tokens_graph_built,
+            setup_tokens_rag_built=run_setup_tokens_rag_built,
+            setup_tokens_method_accounted=run_setup_tokens_method_accounted,
+        )
+    )
+
     # Save summary
     summary_path = results_path / "patch_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2))
@@ -919,9 +1409,12 @@ def run_patch_pipeline(
     print(f"  Instances: {n_total}")
     print(f"  Patched:   {n_patched}/{n_total} ({n_patched/n_total:.1%})" if n_total else "  Patched: 0/0")
     print(f"  Tokens:    {total_tokens:,} total ({summary['avg_tokens_per_instance']:,.0f} avg/instance)")
+    print(f"  Cost:      {summary['total_cost_tokens']:,} total (incl. setup)")
     if summary.get("harness_results"):
         r = summary["harness_results"]
         print(f"  Resolved:  {r['n_resolved']}/{n_total} ({r['resolved_rate']:.1%})")
+        if summary.get("cost_per_resolved_issue") is not None:
+            print(f"  Cost/Res:  {summary['cost_per_resolved_issue']:,.1f} tokens/resolved")
     print(f"  Summary:   {summary_path}")
     print(f"{'='*60}")
 
@@ -942,12 +1435,32 @@ def main():
     parser.add_argument(
         "--evaluate",
         action="store_true",
-        help="Run SWE-bench harness after patch generation (requires Docker)",
+        help="Run SWE-bench harness after patch generation (requires Docker, or --modal)",
+    )
+    parser.add_argument(
+        "--modal",
+        action="store_true",
+        help="Run harness on Modal cloud (parallel Sandboxes, no local Docker needed). "
+             "Requires 'modal setup' first.",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Skip API calls; use gold files as retrieved, skip patch generation",
+    )
+    parser.add_argument(
+        "--evaluate-only",
+        action="store_true",
+        help=(
+            "Stage 2: skip patch generation and run SWE-bench harness on an existing "
+            "predictions.json. Requires --run-dir."
+        ),
+    )
+    parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="Path to a prior Stage-1 run directory (e.g. results/patch_runs/20260222_210339). "
+             "Used with --evaluate-only.",
     )
     args = parser.parse_args()
 
@@ -955,7 +1468,10 @@ def main():
         manifest_path=args.manifest,
         results_dir=args.results_dir,
         evaluate=args.evaluate,
+        modal=args.modal,
         dry_run=args.dry_run,
+        evaluate_only=args.evaluate_only,
+        run_dir=args.run_dir,
     )
 
 

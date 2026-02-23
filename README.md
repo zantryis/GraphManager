@@ -1,95 +1,87 @@
-# Graph-Augmented Manager
+# GraphManager
 
-**Can agentic navigation over a structured code graph compete with or beat vector-search RAG for file-level issue localization?**
+**Graph-based retrieval for cost-efficient automated issue resolution.**
 
-This project evaluates graph-guided retrieval versus RAG baselines on real [SWE-bench](https://www.swebench.com/) issues, with explicit quality and token-cost accounting.
+GraphManager builds a typed AST graph from a Python repository and uses it to locate relevant files for a given issue — matching or exceeding dense RAG quality at substantially lower token cost.
 
 ## Architecture
 
 ```
-GitHub Issue ──▶ Retrieval Agent ──▶ Relevant Files
+GitHub Issue ──▶ Retrieval Agent ──▶ Relevant Files ──▶ Patch Agent ──▶ Patch
                  (Gemini + tools)
                        │
             Knowledge Graph or RAG Index
 ```
 
-## Methods
+## Retrieval Methods
 
-Six methods are evaluated on the same issue sets:
+Seven methods evaluated on the same issue sets:
 
-| Method | Strategy | LLM? |
+| Method | Strategy | LLM at query time? |
 |---|---|---|
 | `gm_progressive` | Graph Manager, constrained/progressive tool use | Yes |
-| `gm_baseline` | Graph Manager, exploratory baseline tool use | Yes |
+| `gm_baseline` | Graph Manager, exploratory baseline | Yes |
+| `gm_deterministic` | Structural scoring (no LLM at query time) | No |
 | `rag_progressive` | RAG Agent, constrained/progressive search | Yes |
-| `rag_baseline` | RAG Agent, exploratory baseline search | Yes |
+| `rag_baseline` | RAG Agent, exploratory baseline | Yes |
 | `raw_rag_function` | Pure vector similarity over function chunks | No |
 | `raw_rag_fixed` | Pure vector similarity over fixed-size chunks | No |
 
-Both agentic families use the same model (`gemini-2.0-flash`) and comparable prompting, changing only the retrieval backend and tool interface.
+Current models: retrieval manager = `gemini-3-flash-preview`, patch agent = `gemini-3-flash-preview`.
 
 ## Knowledge Graph
 
 Built from static AST analysis (`tree-sitter`):
 
-- Nodes: files, classes, functions
-- Edges: `DEFINES`, `IMPORTS`, `CALLS`, `CONTAINS`, `INHERITS`
-- Semantic entry: FAISS over node text (names/docstrings/signatures)
+- **Nodes:** files, classes, functions
+- **Edges:** `DEFINES`, `IMPORTS`, `CALLS`, `CONTAINS`, `INHERITS`
+- **Semantic entry:** FAISS over node metadata (names/docstrings/signatures — not code bodies)
 
-## Evaluation Protocol (Current)
+Indexing metadata instead of code bodies is why graph setup costs ~3× fewer tokens than dense RAG embedding.
 
-- Dataset support: `SWE-bench/*` and `AmazonScience/SWE-PolyBench_*` (via adapters in `src/datasets/`)
-- Metric target: file-level precision/recall/F1 with explicit error accounting
-- Cost accounting: `setup_embedding_tokens + total_query_embedding_tokens + total_llm_tokens`
-- Track separation: strict commit-fidelity vs same-snapshot amortized
-- Repeat statistics: paired deltas + bootstrap CI via repeat-set aggregates
+## Evaluation Protocol
 
-## Latest Validated Evidence (2026-02-18)
+- **Datasets:** `SWE-bench/SWE-bench_Verified` and `AmazonScience/SWE-PolyBench_*`
+- **Metric:** file-level precision/recall/F1
+- **Cost accounting:** `setup_embedding_tokens + retrieval_runtime_tokens + patch_runtime_tokens`
+- **Dual track:**
+  - **Strict** — per-issue index rebuild at each commit (conservative cost)
+  - **Same-snapshot amortized** — one index serves all issues on a snapshot (realistic deployment)
 
-Frozen artifact bundle (11 valid cells, all `ci_ready=True`, 3 repeats each):
+## Key Results (2026-02-22, final)
 
-- `research_report/artifacts/frozen-20260212-matrix-v2-clean/manifest.json`
-- `research_report/artifacts/frozen-20260212-matrix-v2-clean/summary_bundle.json`
+### Retrieval Quality — Strict Track, File-level F1
 
-Results directory: `results/clean_eval_20260211_201431/`
+| Method | Flask | Requests | Pytest | FastAPI | LangChain | Keras | yt-dlp |
+|--------|-------|----------|--------|---------|-----------|-------|--------|
+| gm\_deterministic | 0.679 | 0.520 | 0.473 | 0.407 | 0.452 | 0.274 | 0.297 |
+| gm\_progressive | 0.803 | 0.700 | 0.550 | 0.417 | **0.783** | 0.267 | 0.347 |
+| rag\_progressive | 0.704 | 0.733 | 0.602 | 0.421 | 0.366 | 0.162 | 0.114 |
 
-Repeat sets: `results/clean_eval_20260211_201431/repeat_sets/`
+Flask/Requests/Pytest: means over ≥3 repeats. Others: single run, directional.
+Macro-F1 across Flask/Requests/Pytest: GM-progressive 0.684, RAG-progressive 0.680 — near-tied.
 
-> **Note on langchain-ai/langchain:** The langchain strict cell is excluded (`valid: false`) because
-> `source_prefixes: [libs/langchain]` matched no Python files at the pinned commit (the monorepo
-> layout didn't exist yet at that commit). The correct prefix is `[langchain]`. The repeat set file
-> is preserved but flagged invalid and filtered from all dashboard views.
+### Token Cost Comparison (3 SWE-bench repos, 30 issues)
 
-### Headline: GM-progressive vs RAG-progressive (gm_progressive − rag_progressive, mean F1 delta, bootstrap 95% CI)
+| Method | Setup tokens | Total tokens | vs RAG-progressive |
+|--------|-------------|--------------|-------------------|
+| GM-progressive | 701K | 999K | 0.42× |
+| GM-deterministic | 701K | 706K | 0.30× |
+| RAG-progressive | 2,268K | 2,391K | 1.0× (reference) |
 
-| Repo | Track | GM F1 | RAG F1 | Delta | 95% CI |
-|---|---|---:|---:|---:|---|
-| pallets/flask | strict | 0.654 | 0.354 | +0.301 | [+0.211, +0.415] |
-| psf/requests | strict | 0.456 | 0.267 | +0.189 | [+0.130, +0.280] |
-| pytest-dev/pytest | strict | 0.502 | 0.452 | +0.051 | [−0.015, +0.103] ¹ |
-| tiangolo/fastapi | strict | 0.480 | 0.411 | +0.069 | [+0.028, +0.128] |
-| yt-dlp/yt-dlp | strict | 0.382 | 0.163 | +0.219 | [+0.133, +0.267] |
-| keras-team/keras | strict | 0.319 | 0.140 | +0.179 | [+0.095, +0.255] |
-| pallets/flask | same-snapshot | 0.740 | 0.341 | +0.399 | [+0.361, +0.461] |
-| psf/requests | same-snapshot | 0.544 | 0.308 | +0.237 | [+0.233, +0.238] |
-| pytest-dev/pytest | same-snapshot | 0.570 | 0.499 | +0.071 | [+0.015, +0.128] |
-| tiangolo/fastapi | same-snapshot | 0.530 | 0.412 | +0.119 | [+0.098, +0.151] |
-| yt-dlp/yt-dlp | same-snapshot | 0.391 | 0.217 | +0.174 | [+0.097, +0.280] |
+Graph setup embeds metadata (~40–80 tokens/function) vs RAG embedding code bodies (~200–500 tokens/function).
 
-¹ Inconclusive (CI spans zero). All other deltas have CI entirely above zero.
+### End-to-End Patching Pilot (N=100, SWE-bench Verified, 9 repositories)
 
-All strict SWE-bench cells have `commit_repeat_ratio=0.0` (each issue at its own commit).
-Same-snapshot cells have `commit_repeat_ratio≥0.8` (world-model reuse enabled by design).
+| Method | Resolved | Cost-per-resolved (method-accounted) | Cost-per-resolved (as-run) |
+|--------|----------|--------------------------------------|---------------------------|
+| Oracle (gold files) | 45% | 33,594 tokens | 33,594 tokens |
+| GM-progressive | **43%** | **479,354 tokens** | 1,250,676 tokens |
+| RAG-progressive | 38% | 2,115,746 tokens | 2,319,677 tokens |
+| None (no retrieval) | 3% | 24,291 tokens | 24,291 tokens |
 
-## End-to-End Patching (2026-02-18)
-
-| Run ID | Repo | Instances | Patch rate | Resolved rate (Pass@1) | Harness outcomes | Retrieval method | Models |
-|---|---|---:|---:|---:|---|---|---|
-| `20260218_120541` | `psf/requests` | 8 | 8/8 (100.0%) | 1/8 (12.5%) | 1 resolved, 3 unresolved, 4 patch-apply errors | `gm_progressive` | manager=`gemini-3-flash-preview`, patch=`gemini-2.5-flash` |
-
-Artifacts:
-- Patch summary: `results/patch_runs/20260218_120541/patch_summary.json`
-- SWE-bench harness report: `graphmanager-gm_progressive.graphmanager_20260218_120541.json`
+McNemar p=0.38 — quality gap not statistically significant. Single run, exploratory.
+GM resolves 43% at **4.4× lower cost-per-resolved** than RAG (method-accounted).
 
 ## Quick Start
 
@@ -99,10 +91,13 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# edit .env and set GEMINI_API_KEY=...
+# Set GEMINI_API_KEY in .env (required)
+# Optional: HF_TOKEN (for HuggingFace dataset access), MODAL_TOKEN_ID/SECRET (for Modal cloud)
 ```
 
 ## Run Experiments
+
+### Retrieval evaluation
 
 Single-repo run:
 
@@ -118,87 +113,99 @@ Single-repo run:
 Multi-repo suite:
 
 ```bash
-./.venv/bin/python run_suite.py experiments.yaml
-```
-
-Cross-benchmark matrix (manifest-pinned, strict + same-snapshot):
-
-```bash
 ./.venv/bin/python run_suite.py experiments_matrix_v2.yaml
 ```
 
-## Visualize
+### Patching pipeline (two-stage)
+
+**Stage 1 — generate patches** (no Docker or Modal required):
+
+```bash
+./.venv/bin/python run_patch.py \
+  --manifest patch_manifests/swebench_verified_requests_v1.yaml
+# → writes results/patch_runs/<run_id>/predictions.json
+```
+
+**Stage 2 — evaluate** an existing predictions.json:
+
+```bash
+# Local Docker
+./.venv/bin/python run_patch.py \
+  --manifest patch_manifests/swebench_verified_requests_v1.yaml \
+  --evaluate-only \
+  --run-dir results/patch_runs/<run_id>
+
+# Modal cloud (no local Docker needed; requires modal setup)
+./.venv/bin/python run_patch.py \
+  --manifest patch_manifests/swebench_verified_requests_v1.yaml \
+  --evaluate-only \
+  --run-dir results/patch_runs/<run_id> \
+  --modal
+```
+
+**Combined Stage 1+2** (generate + evaluate in one pass):
+
+```bash
+./.venv/bin/python run_patch.py \
+  --manifest patch_manifests/swebench_verified_requests_v1.yaml \
+  --evaluate [--modal]
+```
+
+### Visualize
 
 ```bash
 ./.venv/bin/python visualize_results.py
 # writes results/compare.html
-```
 
-By default this excludes stale legacy runs and superseded reruns (latest per config only).  
-Use `--include-stale` to inspect all historical runs:
-
-```bash
+# Include stale/historical runs
 ./.venv/bin/python visualize_results.py --include-stale --output results/compare_with_stale.html
 ```
-
-You can also render a specific run directory:
-
-```bash
-./.venv/bin/python visualize_results.py --run results/clean_eval_20260211_201431
-```
-
-Render a specific repeat aggregate (useful for strict vs same-snapshot amortization views):
-
-```bash
-# Flask strict
-./.venv/bin/python visualize_results.py \
-  --run results/clean_eval_20260211_201431/repeat_sets/20260211_202654_swe_bench_pallets_flask_strict_commit_fidelity_issues_swebench_flask_v2_10.json \
-  --output results/flask_strict_compare.html
-
-# Flask same-snapshot
-./.venv/bin/python visualize_results.py \
-  --run results/clean_eval_20260211_201431/repeat_sets/20260211_203650_swe_bench_pallets_flask_same_snapshot_amortized_issues_swebench_flask_v2_10.json \
-  --output results/flask_snapshot_compare.html
-```
-
-The dashboard now includes:
-
-- `Global Cost-Quality Frontier` (cross-run tradeoff landscape)
-- `Tradeoff Outliers` (worst tokens/F1 regime points)
-- `Regime Shift Detector` (strict vs same-snapshot deltas by method)
-- run-level cards for amortization, CI gates, and manager telemetry
 
 ## Project Structure
 
 ```
-run_experiment.py          Single experiment runner
-run_suite.py               Suite runner from YAML config
+run_experiment.py          Single retrieval experiment runner
+run_suite.py               Multi-repo suite runner from YAML config
+run_patch.py               Patching pipeline (retrieval → patch generation → evaluation)
 visualize_results.py       HTML dashboard generator
 src/
-  graph_builder.py         AST -> graph + graph index
-  manager_agent.py         Graph navigation agent/tools
-  rag_baseline.py          RAG agents + raw RAG baselines
-  evaluation.py            dataset loading, orchestration, metrics
-  run_ids.py               stable issue/suite identifiers
-tests/                     evaluation and graph-resolution tests
+  graph_builder.py         AST → typed graph + FAISS index
+  manager_agent.py         Graph navigation agent and tools
+  rag_baseline.py          RAG agents and raw RAG baselines
+  evaluation.py            Dataset loading, orchestration, metrics
+  patch_agent.py           Patch generation agent
+  deterministic_retrieval.py  Zero-LLM-runtime structural scorer
+  deterministic_config.py  Machine-loadable deterministic config contract
+patch_manifests/           YAML manifests for patch runs
+  n100_verified/           Frozen N=100 SWE-bench Verified split (9 repos × 4 methods)
+experiments_matrix_v2.yaml Retrieval experiment matrix
+configs/                   Frozen experiment configs (gm_deterministic tuning)
+tools/                     Analysis scripts (profiling, v4 handoff analysis)
+education/                 Professor-facing pilot report, gap analysis, email drafts
+tests/                     Unit tests (run before every commit)
+research_report/           LaTeX paper (two-column arXiv format, 15 pages)
+  figures/                 Matplotlib PDF figures
+dev_logs/                  Decision logs (one file per session/decision)
+results/                   gitignored — experiment outputs
 ```
 
-## Planning And Reporting
+## Planning and Reporting
 
-- Execution roadmap: `EXECUTION_PLAN.md`
-- Evaluation protocol: `EVALUATION_SPEC.md`
-- Decision logs: `dev_logs/README.md`
-- Report scaffold (LaTeX): `research_report/README.md`
-- Documentation index: `docs/README.md`
+- Current execution state and workstreams: `CURRENT_STATE.md`
+- Paper scope and claims boundaries: `RESEARCH_INTENT.md`
+- Permitted claim framing: `CLAIMS_LOCK.md`
+- Full dev policy (TDD, commits, scope rules): `CLAUDE.md`
+- Evaluation protocol and formulas: `EVALUATION_SPEC.md`
+- Decision logs: `dev_logs/`
 
 ## Limitations
 
-1. Small sample in headline runs (`n=10` per repo; `n=5` for yt-dlp due to dataset size).
-2. End-to-end patching is now wired and runnable; patch apply robustness is still a major limiter on resolved rate.
-3. `gm_deterministic` uses default untuned scoring weights. Coefficient tuning (frozen dev split grid search) is planned.
-4. `langchain-ai/langchain` cell is currently excluded pending source_prefix fix and re-run.
-5. Static analysis still misses some dynamic Python behavior.
-6. API nondeterminism/rate limits can affect run stability and latency.
+1. **No BM25 baseline.** The primary cost comparison is GM vs. our dense-RAG implementation. BM25 file-level retrieval (used by Agentless, SWE-bench SOTA) was not evaluated. The 4.4× CPR advantage is relative to dense-embedding RAG, not lexical retrieval.
+2. **Underpowered quality comparison.** n=100 patching gives ~25% power to detect a 5pp gap; McNemar p=0.38 — cannot conclude equivalence, only non-significance at this sample size.
+3. **Tool interface asymmetry.** GM-progressive has 3 retrieval tools; RAG-progressive has 1. Whether F1 differences reflect graph structure or tool count is unablated.
+4. **Asymmetric optimization.** gm_deterministic was tuned via 60-candidate random search on Flask; RAG uses default parameters.
+5. **Non-overlapping evaluation populations.** Retrieval F1 measured on Flask/Requests/Pytest; patching on a different 9-repo set. Per-instance retrieval-to-patch correlation is unavailable.
+6. **Python-only.** Tree-sitter Python grammar; cross-language claims are out of scope.
 
 ## Dependencies
 
@@ -209,3 +216,4 @@ tests/                     evaluation and graph-resolution tests
 - `datasets`
 - `gitpython`
 - `pyyaml`
+- `modal` (optional, for cloud harness evaluation)

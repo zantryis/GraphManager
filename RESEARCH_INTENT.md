@@ -3,7 +3,33 @@
 <!-- This captures strategic intent agreed with the researcher. Do not modify
      without researcher sign-off — it is not a status doc, it is a contract. -->
 
-Last updated: 2026-02-18
+Last updated: 2026-02-22
+
+---
+
+## V2 STATUS (2026-02-22)
+
+**The V1 paper is archived as a reference artifact. Do not edit it. Do not treat V1
+experiment design as the target — it had too many methodological gaps.**
+
+V2 is in the research planning phase. The full V2 plan is in `education/v2_next_session_plan.md`.
+Read that document before doing any V2 design or engineering work.
+
+**Core thesis direction is unchanged:** graph-based world model for cost-efficient multi-hop
+structural retrieval, with cost advantage widening under amortized deployment.
+
+**What changes in V2:**
+- BM25 added as lexical baseline (was missing in V1 — the most critical gap)
+- `none` (empty-context patch) replaced with `agentic_cold_start` (agent with file tools, no index)
+- `rag_progressive` gets symmetric tool interface (file-read tool to match GM's 3 tools)
+- Retrieval and patching evaluations run on the **same repos** (V1 used different sets)
+- Comparison framed against published Agentless/RepoMap leaderboard numbers, with
+  BM25 and agentic_cold_start as honest internal baselines
+- Open decision: fixed-context vs. agentic-tool patch agent — resolve in professor meeting
+
+The V1 numbers, code, and results are frozen. Do not re-run V1 experiments.
+
+---
 
 ---
 

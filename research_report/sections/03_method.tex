@@ -60,10 +60,11 @@ Given an issue description $q$:
 
 \paragraph{Scoring formula.}
 For each candidate file $f$, the score is:
-\begin{equation}
+\begin{multline}
 \label{eq:deterministic_score}
-s(f) = w_{\text{sem}} \cdot S_{\text{sem}}(f) + w_{\text{graph}} \cdot S_{\text{graph}}(f) + w_{\text{conf}} \cdot S_{\text{conf}}(f) + w_{\text{hint}} \cdot S_{\text{hint}}(f) - w_{\text{pen}} \cdot S_{\text{pen}}(f)
-\end{equation}
+s(f) = w_{\text{sem}} \cdot S_{\text{sem}}(f) + w_{\text{graph}} \cdot S_{\text{graph}}(f) \\
+  + w_{\text{conf}} \cdot S_{\text{conf}}(f) + w_{\text{hint}} \cdot S_{\text{hint}}(f) - w_{\text{pen}} \cdot S_{\text{pen}}(f)
+\end{multline}
 where:
 \begin{itemize}[leftmargin=1.5em]
   \item $S_{\text{sem}}(f)$: maximum seed similarity among nodes in $f$.
@@ -106,7 +107,7 @@ Each agent family supports two modes:
 
 Table~\ref{tab:methods} summarizes the seven retrieval methods evaluated.
 
-\begin{table}[h]
+\begin{table*}[t]
 \centering
 \small
 \begin{tabular}{llccc}
@@ -124,7 +125,7 @@ Method & Description & Index & LLM at query & Graph \\
 \end{tabular}
 \caption{Summary of retrieval methods. ``Graph'' indicates whether the method uses the AST-derived knowledge graph. ``LLM at query'' indicates whether language model calls are made during per-issue retrieval.}
 \label{tab:methods}
-\end{table}
+\end{table*}
 
 \subsection{Cost Model}
 \label{sec:cost_model}

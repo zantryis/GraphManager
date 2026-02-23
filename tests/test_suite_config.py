@@ -1,4 +1,6 @@
 import unittest
+import tempfile
+from pathlib import Path
 
 from run_suite import resolve_experiment
 
@@ -118,6 +120,42 @@ class SuiteConfigTests(unittest.TestCase):
         self.assertAlmostEqual(resolved["deterministic_w_conf"], 0.2)
         self.assertAlmostEqual(resolved["deterministic_w_hint"], 0.1)
         self.assertAlmostEqual(resolved["deterministic_w_pen"], 0.12)
+
+    def test_resolve_experiment_applies_deterministic_config_file_overrides(self):
+        cfg = """
+deterministic_retrieval:
+  seed_k: 10
+  depth: 3
+  neighbor_cap: 16
+  min_return_files: 1
+  score_ratio_cutoff: 0.62
+  min_score_cutoff: 0.05
+  hub_degree_threshold: 24
+  hub_penalty_scale: 0.4
+  w_sem: 0.40
+  w_graph: 0.20
+  w_conf: 0.20
+  w_hint: 0.10
+  w_pen: 0.10
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "det.yaml"
+            cfg_path.write_text(cfg, encoding="utf-8")
+            resolved = resolve_experiment(
+                {
+                    "repo": "org/repo",
+                    "deterministic_config_path": str(cfg_path),
+                },
+                defaults={},
+            )
+
+        self.assertEqual(resolved["deterministic_config_path"], str(cfg_path))
+        self.assertEqual(resolved["deterministic_seed_k"], 10)
+        self.assertEqual(resolved["deterministic_depth"], 3)
+        self.assertEqual(resolved["deterministic_neighbor_cap"], 16)
+        self.assertAlmostEqual(resolved["deterministic_score_ratio_cutoff"], 0.62)
+        self.assertAlmostEqual(resolved["deterministic_hub_penalty_scale"], 0.4)
+        self.assertAlmostEqual(resolved["deterministic_w_sem"], 0.4)
 
 
 if __name__ == "__main__":

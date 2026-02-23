@@ -3,9 +3,12 @@
 import json
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+import networkx as nx
 
 
 class ManifestLoadingTests(unittest.TestCase):
@@ -24,7 +27,7 @@ class ManifestLoadingTests(unittest.TestCase):
         import yaml
         p = Path("patch_manifests/swebench_verified_requests_v1.yaml")
         data = yaml.safe_load(p.read_text())
-        supported = {"gm_progressive", "gm_deterministic", "rag_progressive"}
+        supported = {"gm_progressive", "gm_deterministic", "rag_progressive", "oracle", "none"}
         self.assertIn(data["retrieval_method"], supported)
 
     def test_manifest_instance_ids_are_unique(self):
@@ -41,6 +44,10 @@ class ManifestLoadingTests(unittest.TestCase):
         self.assertIn("manager_max_turns", data)
         self.assertIn("patch_max_output_tokens", data)
         self.assertIn("patch_max_file_chars", data)
+        self.assertIn("instance_wall_clock_cap_s", data)
+        self.assertIn("rate_limit_max_retries", data)
+        self.assertIn("patch_redact_paths_in_issue_text", data)
+        self.assertIn("retrieval_redact_paths_in_issue_text", data)
 
 
 class DockerCheckTests(unittest.TestCase):
@@ -108,6 +115,239 @@ class RetryPolicyTests(unittest.TestCase):
                     jitter_s=0.0,
                 )
 
+    def test_run_with_rate_limit_backoff_honors_deadline(self):
+        from run_patch import _run_with_rate_limit_backoff
+
+        calls = {"n": 0}
+
+        def should_not_run():
+            calls["n"] += 1
+            return "ok"
+
+        with self.assertRaises(TimeoutError):
+            _run_with_rate_limit_backoff(
+                should_not_run,
+                label="retrieval",
+                deadline_monotonic=time.monotonic() - 0.01,
+            )
+        self.assertEqual(calls["n"], 0)
+
+    def test_run_with_rate_limit_backoff_times_out_blocking_callable(self):
+        from run_patch import _run_with_rate_limit_backoff
+
+        def slow_call():
+            time.sleep(0.2)
+            return "ok"
+
+        with self.assertRaises(TimeoutError):
+            _run_with_rate_limit_backoff(
+                slow_call,
+                label="patch",
+                max_retries=0,
+                deadline_monotonic=time.monotonic() + 0.05,
+            )
+
+
+class RetrievalMethodTests(unittest.TestCase):
+    def _make_graph(self):
+        graph = nx.Graph()
+        graph.add_node("requests/models.py", type="file")
+        graph.add_node("requests/sessions.py", type="file")
+        graph.add_node("README.md", type="file")
+        return graph
+
+    def test_run_retrieval_none_returns_empty_files(self):
+        from run_patch import _run_retrieval
+
+        files, tokens = _run_retrieval(
+            {"problem_statement": "issue text", "patch": ""},
+            graph=self._make_graph(),
+            graph_index=None,
+            rag_index=None,
+            client=None,
+            method="none",
+            manager_model="unused",
+            manager_max_turns=1,
+            deterministic_config={},
+        )
+
+        self.assertEqual(files, [])
+        self.assertEqual(tokens.get("total_tokens"), 0)
+        self.assertEqual(tokens.get("stop_reason"), "no_retrieval")
+
+    def test_run_retrieval_oracle_uses_patch_diff_files(self):
+        from run_patch import _run_retrieval
+
+        issue = {
+            "problem_statement": "issue text",
+            "patch": (
+                "diff --git a/requests/models.py b/requests/models.py\n"
+                "@@ -1,1 +1,1 @@\n"
+                "-x=1\n"
+                "+x=2\n"
+                "diff --git a/docs/changelog.rst b/docs/changelog.rst\n"
+                "@@ -1,1 +1,1 @@\n"
+                "-a\n"
+                "+b\n"
+            ),
+        }
+        files, tokens = _run_retrieval(
+            issue,
+            graph=self._make_graph(),
+            graph_index=None,
+            rag_index=None,
+            client=None,
+            method="oracle",
+            manager_model="unused",
+            manager_max_turns=1,
+            deterministic_config={},
+        )
+
+        self.assertEqual(files, ["requests/models.py", "docs/changelog.rst"])
+        self.assertEqual(tokens.get("total_tokens"), 0)
+        self.assertEqual(tokens.get("stop_reason"), "oracle")
+
+
+class MethodScopedIndexBuildTests(unittest.TestCase):
+    class _FakeGraphBuilder:
+        init_calls = 0
+        build_calls = 0
+
+        def __init__(self, repo_dir, include_prefixes=None):
+            MethodScopedIndexBuildTests._FakeGraphBuilder.init_calls += 1
+            self.repo_dir = repo_dir
+            self.include_prefixes = include_prefixes
+
+        def build(self):
+            MethodScopedIndexBuildTests._FakeGraphBuilder.build_calls += 1
+            graph = nx.Graph()
+            graph.add_node("requests/models.py", type="file")
+            return graph
+
+    class _FakeGraphIndex:
+        init_calls = 0
+        build_calls = 0
+
+        def __init__(self, graph, client):
+            MethodScopedIndexBuildTests._FakeGraphIndex.init_calls += 1
+            self.graph = graph
+            self.client = client
+            self.embedding_tokens_estimate = 111
+
+        def build(self):
+            MethodScopedIndexBuildTests._FakeGraphIndex.build_calls += 1
+
+    class _FakeRAGIndex:
+        init_calls = 0
+        build_calls = 0
+
+        def __init__(self, repo_dir, client, chunk_strategy="function", include_prefixes=None):
+            MethodScopedIndexBuildTests._FakeRAGIndex.init_calls += 1
+            self.repo_dir = repo_dir
+            self.client = client
+            self.chunk_strategy = chunk_strategy
+            self.include_prefixes = include_prefixes
+            self.embedding_tokens_estimate = 222
+            self.chunks = [{"file": "requests/models.py"}]
+
+        def build(self):
+            MethodScopedIndexBuildTests._FakeRAGIndex.build_calls += 1
+
+    def setUp(self):
+        MethodScopedIndexBuildTests._FakeGraphBuilder.init_calls = 0
+        MethodScopedIndexBuildTests._FakeGraphBuilder.build_calls = 0
+        MethodScopedIndexBuildTests._FakeGraphIndex.init_calls = 0
+        MethodScopedIndexBuildTests._FakeGraphIndex.build_calls = 0
+        MethodScopedIndexBuildTests._FakeRAGIndex.init_calls = 0
+        MethodScopedIndexBuildTests._FakeRAGIndex.build_calls = 0
+
+    def test_method_scoped_context_gm_builds_graph_only(self):
+        from run_patch import _build_method_scoped_commit_context
+
+        validated = {"count": 0}
+
+        def validate_fn(_context, required_methods=None):
+            validated["count"] += 1
+            self.assertEqual(required_methods, ("gm_progressive",))
+
+        context = _build_method_scoped_commit_context(
+            retrieval_method="gm_progressive",
+            repo_dir="/tmp/repo",
+            prefixes=("requests",),
+            client=object(),
+            graph_builder_cls=self._FakeGraphBuilder,
+            graph_index_cls=self._FakeGraphIndex,
+            rag_index_cls=self._FakeRAGIndex,
+            validate_commit_context_fn=validate_fn,
+        )
+
+        self.assertEqual(self._FakeGraphBuilder.build_calls, 1)
+        self.assertEqual(self._FakeGraphIndex.build_calls, 1)
+        self.assertEqual(self._FakeRAGIndex.build_calls, 0)
+        self.assertIsNotNone(context["graph"])
+        self.assertIsNotNone(context["graph_index"])
+        self.assertIsNone(context["rag_index"])
+        self.assertEqual(context["retrieval_setup_tokens"], 111)
+        self.assertEqual(context["setup_tokens_graph_built"], 111)
+        self.assertEqual(context["setup_tokens_rag_built"], 0)
+        self.assertEqual(context["setup_tokens_method_accounted"], 111)
+        self.assertEqual(validated["count"], 1)
+
+    def test_method_scoped_context_rag_builds_rag_only(self):
+        from run_patch import _build_method_scoped_commit_context
+
+        validated = {"count": 0}
+
+        def validate_fn(_context, required_methods=None):
+            validated["count"] += 1
+            self.assertEqual(required_methods, ("rag_progressive",))
+
+        context = _build_method_scoped_commit_context(
+            retrieval_method="rag_progressive",
+            repo_dir="/tmp/repo",
+            prefixes=("requests",),
+            client=object(),
+            graph_builder_cls=self._FakeGraphBuilder,
+            graph_index_cls=self._FakeGraphIndex,
+            rag_index_cls=self._FakeRAGIndex,
+            validate_commit_context_fn=validate_fn,
+        )
+
+        self.assertEqual(self._FakeGraphBuilder.build_calls, 0)
+        self.assertEqual(self._FakeGraphIndex.build_calls, 0)
+        self.assertEqual(self._FakeRAGIndex.build_calls, 1)
+        self.assertIsNone(context["graph"])
+        self.assertIsNone(context["graph_index"])
+        self.assertIsNotNone(context["rag_index"])
+        self.assertEqual(context["retrieval_setup_tokens"], 222)
+        self.assertEqual(context["setup_tokens_graph_built"], 0)
+        self.assertEqual(context["setup_tokens_rag_built"], 222)
+        self.assertEqual(context["setup_tokens_method_accounted"], 222)
+        self.assertEqual(validated["count"], 1)
+
+    def test_method_scoped_context_none_and_oracle_build_neither(self):
+        from run_patch import _build_method_scoped_commit_context
+
+        for method in ("none", "oracle"):
+            context = _build_method_scoped_commit_context(
+                retrieval_method=method,
+                repo_dir="/tmp/repo",
+                prefixes=("requests",),
+                client=object(),
+                graph_builder_cls=self._FakeGraphBuilder,
+                graph_index_cls=self._FakeGraphIndex,
+                rag_index_cls=self._FakeRAGIndex,
+                validate_commit_context_fn=lambda _ctx, required_methods=None: None,
+            )
+            self.assertEqual(context["retrieval_setup_tokens"], 0)
+            self.assertEqual(context["setup_tokens_graph_built"], 0)
+            self.assertEqual(context["setup_tokens_rag_built"], 0)
+            self.assertEqual(context["setup_tokens_method_accounted"], 0)
+
+        self.assertEqual(self._FakeGraphBuilder.build_calls, 0)
+        self.assertEqual(self._FakeGraphIndex.build_calls, 0)
+        self.assertEqual(self._FakeRAGIndex.build_calls, 0)
+
 
 class ModelSelectionTests(unittest.TestCase):
     def test_resolve_model_config_uses_defaults(self):
@@ -115,7 +355,7 @@ class ModelSelectionTests(unittest.TestCase):
 
         manager_model, patch_model = _resolve_model_config({})
         self.assertEqual(manager_model, "gemini-3-flash-preview")
-        self.assertEqual(patch_model, "gemini-2.5-pro")
+        self.assertEqual(patch_model, "gemini-3-flash-preview")
 
     def test_resolve_model_config_honors_manifest_overrides(self):
         from run_patch import _resolve_model_config
@@ -307,6 +547,172 @@ class PatchSummaryMetricsTests(unittest.TestCase):
         self.assertEqual(metrics["n_apply_ok"], 2)
         self.assertEqual(metrics["n_apply_failed"], 1)
         self.assertAlmostEqual(metrics["apply_success_rate"], 2 / 3, places=6)
+
+
+class PatchCostSummaryTests(unittest.TestCase):
+    def test_compute_cost_summary_fields_with_resolved(self):
+        from run_patch import _compute_cost_summary_fields
+
+        per_instance = [
+            {"retrieval_tokens": {"total_tokens": 10}, "patch_tokens": {"total_tokens": 20}},
+            {"retrieval_tokens": {"total_tokens": 5}, "patch_tokens": {"total_tokens": 15}},
+        ]
+        harness_results = {
+            "n_resolved": 2,
+            "resolved_instances": ["i1", "i2"],
+        }
+
+        fields = _compute_cost_summary_fields(
+            per_instance_results=per_instance,
+            retrieval_setup_tokens=50,
+            harness_results=harness_results,
+        )
+
+        self.assertEqual(fields["retrieval_setup_tokens"], 50)
+        self.assertEqual(fields["retrieval_runtime_tokens"], 15)
+        self.assertEqual(fields["patch_runtime_tokens"], 35)
+        self.assertEqual(fields["total_cost_tokens"], 100)
+        self.assertEqual(fields["n_resolved"], 2)
+        self.assertEqual(fields["resolved_instances"], ["i1", "i2"])
+        self.assertAlmostEqual(fields["cost_per_resolved_issue"], 50.0, places=6)
+
+    def test_compute_cost_summary_fields_with_zero_resolved(self):
+        from run_patch import _compute_cost_summary_fields
+
+        per_instance = [
+            {"retrieval_tokens": {"total_tokens": 8}, "patch_tokens": {"total_tokens": 12}},
+        ]
+        harness_results = {
+            "n_resolved": 0,
+            "resolved_instances": [],
+        }
+
+        fields = _compute_cost_summary_fields(
+            per_instance_results=per_instance,
+            retrieval_setup_tokens=20,
+            harness_results=harness_results,
+        )
+
+        self.assertEqual(fields["total_cost_tokens"], 40)
+        self.assertEqual(fields["n_resolved"], 0)
+        self.assertIsNone(fields["cost_per_resolved_issue"])
+
+    def test_compute_cost_summary_fields_includes_split_setup_fields(self):
+        from run_patch import _compute_cost_summary_fields
+
+        fields = _compute_cost_summary_fields(
+            per_instance_results=[
+                {"retrieval_tokens": {"total_tokens": 2}, "patch_tokens": {"total_tokens": 3}},
+            ],
+            retrieval_setup_tokens=7,
+            harness_results=None,
+            setup_tokens_graph_built=11,
+            setup_tokens_rag_built=13,
+            setup_tokens_method_accounted=7,
+        )
+
+        self.assertEqual(fields["setup_tokens_graph_built"], 11)
+        self.assertEqual(fields["setup_tokens_rag_built"], 13)
+        self.assertEqual(fields["setup_tokens_method_accounted"], 7)
+        self.assertEqual(fields["retrieval_setup_tokens"], 7)
+        self.assertEqual(fields["total_cost_tokens"], 12)
+
+    def test_compute_cost_summary_fields_defaults_method_accounted_tokens(self):
+        from run_patch import _compute_cost_summary_fields
+
+        fields = _compute_cost_summary_fields(
+            per_instance_results=[],
+            retrieval_setup_tokens=19,
+            harness_results=None,
+        )
+
+        self.assertEqual(fields["setup_tokens_graph_built"], 0)
+        self.assertEqual(fields["setup_tokens_rag_built"], 0)
+        self.assertEqual(fields["setup_tokens_method_accounted"], 19)
+
+
+class PredictionsBuildingTests(unittest.TestCase):
+    """Tests for model_patch field in SWE-bench predictions (B7 fix).
+
+    The harness is the ground truth evaluator.  Patches that fail our local
+    git-apply check should still be submitted so the harness can try them — our
+    local check is only a diagnostic used in the repair-retry loop.
+    """
+
+    def test_apply_failed_patch_included_in_predictions(self):
+        """apply_failed patches must appear in model_patch, not as empty string."""
+        from run_patch import _make_swebench_prediction
+
+        patch_text = "--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-old\n+new\n"
+        pred = _make_swebench_prediction(
+            instance_id="repo__pkg-1",
+            retrieval_method="oracle",
+            patch_text=patch_text,
+            patch_status="apply_failed",
+        )
+        self.assertEqual(pred["model_patch"], patch_text)
+
+    def test_no_patch_yields_empty_model_patch(self):
+        """no_patch (model returned nothing) must submit empty string to harness."""
+        from run_patch import _make_swebench_prediction
+
+        pred = _make_swebench_prediction(
+            instance_id="repo__pkg-2",
+            retrieval_method="oracle",
+            patch_text=None,
+            patch_status="no_patch",
+        )
+        self.assertEqual(pred["model_patch"], "")
+
+    def test_patched_status_included_in_predictions(self):
+        """patched (local apply-check passed) must also be submitted correctly."""
+        from run_patch import _make_swebench_prediction
+
+        patch_text = "--- a/g.py\n+++ b/g.py\n@@ -1 +1 @@\n-x\n+y\n"
+        pred = _make_swebench_prediction(
+            instance_id="repo__pkg-3",
+            retrieval_method="gm_progressive",
+            patch_text=patch_text,
+            patch_status="patched",
+        )
+        self.assertEqual(pred["model_patch"], patch_text)
+
+
+class CommitCheckoutSelectionTests(unittest.TestCase):
+    class _FakeGit:
+        def __init__(self):
+            self.checkouts = []
+
+        def checkout(self, commit, force=False):
+            self.checkouts.append((commit, force))
+
+    class _FakeRepo:
+        def __init__(self):
+            self.git = CommitCheckoutSelectionTests._FakeGit()
+
+    def test_checkout_issue_commit_changes_per_issue(self):
+        from run_patch import _checkout_issue_commit
+
+        fake_repo = self._FakeRepo()
+        current_commit = None
+        issues = [
+            {"instance_id": "i1", "base_commit": "abc111"},
+            {"instance_id": "i2", "base_commit": "def222"},
+            {"instance_id": "i3", "base_commit": "abc111"},
+        ]
+
+        for issue in issues:
+            current_commit = _checkout_issue_commit(
+                repo_git=fake_repo,
+                snapshot_commit=None,
+                issue=issue,
+                current_commit=current_commit,
+            )
+
+        self.assertEqual(
+            fake_repo.git.checkouts,
+            [("abc111", True), ("def222", True), ("abc111", True)],
+        )
 
 
 if __name__ == "__main__":

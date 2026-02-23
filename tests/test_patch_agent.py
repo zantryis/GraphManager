@@ -51,7 +51,32 @@ Here is the fix:
         )
         response = f"<patch>\n{diff}\n</patch>"
         result = extract_patch(response)
-        self.assertEqual(result, diff.strip())
+        self.assertEqual(result, diff.strip() + "\n")
+
+    def test_extract_patch_adds_trailing_newline(self):
+        """B8: extract_patch must return a patch ending with \\n for patch utilities."""
+        response = (
+            "<patch>--- a/foo.py\n+++ b/foo.py\n"
+            "@@ -1,1 +1,1 @@\n-old\n+new</patch>"
+        )
+        result = extract_patch(response)
+        self.assertIsNotNone(result)
+        self.assertTrue(result.endswith("\n"), "patch must end with newline for patch/git-apply compatibility")
+
+    def test_extract_raw_unified_diff_adds_trailing_newline(self):
+        """B8: fallback raw-diff extractor must also return a patch ending with \\n."""
+        response = (
+            "Here is the patch:\n\n"
+            "--- a/src/a.py\n"
+            "+++ b/src/a.py\n"
+            "@@ -1,3 +1,3 @@\n"
+            " def f():\n"
+            "-    return 1\n"
+            "+    return 2"  # deliberately no trailing newline
+        )
+        result = extract_patch(response)
+        self.assertIsNotNone(result)
+        self.assertTrue(result.endswith("\n"), "raw diff fallback must end with newline")
 
     def test_extracts_raw_unified_diff_without_patch_tags(self):
         response = (
@@ -140,14 +165,35 @@ class PatchAgentFileReadingTests(unittest.TestCase):
         self.assertLessEqual(len(contents["big.py"]), 1100)  # allow truncation marker
         self.assertIn("truncated", contents["big.py"])
 
-    def test_returns_no_patch_when_no_readable_files(self):
+    def test_no_readable_files_still_calls_model_issue_only(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            agent = PatchAgent(tmpdir, client=MagicMock())
+            client = MagicMock()
+            usage = MagicMock()
+            usage.prompt_token_count = 12
+            usage.candidates_token_count = 3
+
+            part = MagicMock()
+            part.text = "<patch>CANNOT_PATCH</patch>"
+            content = MagicMock()
+            content.parts = [part]
+            candidate = MagicMock()
+            candidate.content = content
+            candidate.finish_reason = "STOP"
+
+            response = MagicMock()
+            response.usage_metadata = usage
+            response.candidates = [candidate]
+            response.text = ""
+            client.models.generate_content.return_value = response
+
+            agent = PatchAgent(tmpdir, client=client)
             patch_text, tokens = agent.generate_patch("issue", ["missing.py"])
 
         self.assertIsNone(patch_text)
-        self.assertEqual(tokens["stop_reason"], "no_readable_files")
-        self.assertEqual(tokens["total_tokens"], 0)
+        self.assertEqual(tokens["stop_reason"], "cannot_patch")
+        self.assertGreater(tokens["total_tokens"], 0)
+        self.assertEqual(tokens["files_provided"], 0)
+        client.models.generate_content.assert_called_once()
 
 
 class PatchAgentGenerationTests(unittest.TestCase):

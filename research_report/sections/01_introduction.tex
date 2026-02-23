@@ -24,4 +24,5 @@ We evaluate seven retrieval methods---including deterministic graph scoring, LLM
   \item A graph-guided retrieval framework with seven method variants, including a deterministic multi-component scorer that requires no LLM calls at query time.
   \item An amortization-aware dual-track evaluation protocol that separately reports strict commit-fidelity and same-snapshot reuse settings, preventing conflation of retrieval quality with cost structure.
   \item A reproducible cost-quality analysis on SWE-bench showing that graph-based methods achieve competitive file-level F1 at lower total token cost than RAG baselines.
+  \item A patching pilot on 100 SWE-bench Verified instances across 9 repositories providing directional evidence that the retrieval cost advantage extends end-to-end to issue resolution.
 \end{enumerate}

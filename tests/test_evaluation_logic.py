@@ -4,6 +4,7 @@ from src.evaluation import (
     ALL_METHODS,
     aggregate_results,
     build_issue_groups,
+    compute_metrics,
     group_issues_by_base_commit,
     prepare_issue_text,
     redact_issue_paths,
@@ -378,6 +379,34 @@ Traceback (most recent call last):
         self.assertIn("gm_deterministic", ALL_METHODS)
 
     # ------------------------------------------------------------------ #
+    # compute_metrics                                                       #
+    # ------------------------------------------------------------------ #
+
+    def test_compute_metrics_empty_gold_returns_zero_not_one(self):
+        """Empty gold list (data error) must not silently inflate mean F1 to 1.0."""
+        result = compute_metrics([], [])
+        self.assertEqual(result["f1"], 0.0)
+        self.assertEqual(result["precision"], 0.0)
+        self.assertEqual(result["recall"], 0.0)
+        self.assertTrue(result.get("skipped_empty_gold", False))
+
+    def test_compute_metrics_empty_predicted_nonempty_gold_returns_zero(self):
+        result = compute_metrics([], ["src/foo.py"])
+        self.assertEqual(result["f1"], 0.0)
+        self.assertFalse(result.get("skipped_empty_gold", False))
+
+    def test_compute_metrics_exact_match_returns_one(self):
+        result = compute_metrics(["src/foo.py"], ["src/foo.py"])
+        self.assertAlmostEqual(result["f1"], 1.0)
+        self.assertFalse(result.get("skipped_empty_gold", False))
+
+    def test_compute_metrics_nonempty_predicted_empty_gold_returns_zero_with_flag(self):
+        """Predicted files with empty gold is a data error — flag it."""
+        result = compute_metrics(["src/foo.py"], [])
+        self.assertEqual(result["f1"], 0.0)
+        self.assertTrue(result.get("skipped_empty_gold", False))
+
+    # ------------------------------------------------------------------ #
     # validate_commit_context                                              #
     # ------------------------------------------------------------------ #
 
@@ -438,6 +467,31 @@ Traceback (most recent call last):
         with self.assertRaises(ValueError) as cm:
             validate_commit_context(context)
         self.assertIn("source_prefix", str(cm.exception).lower())
+
+    def test_validate_commit_context_supports_required_methods_subset(self):
+        setup_costs = self._valid_setup_costs(0)
+        setup_costs["gm_deterministic"]["embedding_tokens"] = 200
+        setup_costs["gm_progressive"]["embedding_tokens"] = 200
+        context = {
+            "graph_file_paths": {"some/file.py"},
+            "setup_costs": setup_costs,
+        }
+        validate_commit_context(
+            context,
+            required_methods=("gm_deterministic",),
+        )
+
+    def test_validate_commit_context_subset_still_checks_required_index(self):
+        setup_costs = self._valid_setup_costs(0)
+        context = {
+            "graph_file_paths": set(),
+            "setup_costs": setup_costs,
+        }
+        with self.assertRaises(ValueError):
+            validate_commit_context(
+                context,
+                required_methods=("gm_deterministic",),
+            )
 
 
 if __name__ == "__main__":

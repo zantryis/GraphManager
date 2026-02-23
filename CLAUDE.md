@@ -96,9 +96,16 @@ results/                  gitignored — experiment outputs
 ./.venv/bin/python run_experiment.py --repo-name pallets/flask \
   --source-prefix src/flask --n-issues 10 --manager-max-turns 6 --rag-max-turns 6
 
-# Patching run (manifest-driven)
-./.venv/bin/python run_patch.py patch_manifests/swebench_verified_requests_v1.yaml \
-  --evaluate
+# Patching run — Stage 1: generate patches only (no Docker needed)
+./.venv/bin/python run_patch.py --manifest patch_manifests/swebench_verified_requests_v1.yaml
+
+# Patching run — Stage 1 + 2 combined (Docker or Modal)
+./.venv/bin/python run_patch.py --manifest patch_manifests/swebench_verified_requests_v1.yaml \
+  --evaluate [--modal]
+
+# Patching run — Stage 2 only: evaluate an existing predictions.json
+./.venv/bin/python run_patch.py --manifest patch_manifests/swebench_verified_requests_v1.yaml \
+  --evaluate-only --run-dir results/patch_runs/<run_id> [--modal]
 
 # Full test suite
 ./.venv/bin/python -m unittest discover -s tests -v

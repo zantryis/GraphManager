@@ -84,7 +84,7 @@ def _extract_raw_unified_diff(response_text: str) -> str | None:
         return None
     if _CANNOT_PATCH_RE.search(candidate):
         return None
-    return candidate
+    return candidate if candidate.endswith("\n") else candidate + "\n"
 
 
 def extract_patch(response_text: str) -> str | None:
@@ -97,7 +97,7 @@ def extract_patch(response_text: str) -> str | None:
         content = match.group(1).strip()
         if not content or _CANNOT_PATCH_RE.search(content):
             return None
-        return content
+        return content if content.endswith("\n") else content + "\n"
 
     # Fallback for model outputs that provide a raw unified diff without tags.
     return _extract_raw_unified_diff(response_text)
@@ -116,8 +116,15 @@ def build_patch_prompt(
 ) -> str:
     """Build the user-turn prompt for patch generation."""
     parts = [f"## Issue\n\n{issue_text}\n"]
-    for path, content in file_contents.items():
-        parts.append(f"## File: {path}\n\n```python\n{content}\n```\n")
+    if file_contents:
+        for path, content in file_contents.items():
+            parts.append(f"## File: {path}\n\n```python\n{content}\n```\n")
+    else:
+        parts.append(
+            "## Retrieved Context\n\n"
+            "No repository files were provided. If insufficient context, return "
+            "<patch>CANNOT_PATCH</patch>.\n"
+        )
     if correction_context:
         parts.append(f"## Correction Context\n\n{correction_context}\n")
     return "\n".join(parts)
@@ -134,9 +141,9 @@ class PatchAgent:
         self,
         repo_dir: str,
         client: genai.Client,
-        model: str = "gemini-2.0-flash",
-        max_file_chars: int = 8000,
-        max_output_tokens: int = 4096,
+        model: str = "gemini-3-flash-preview",
+        max_file_chars: int = 200_000,
+        max_output_tokens: int = 65536,
     ):
         self.repo_dir = Path(repo_dir)
         self.client = client
@@ -187,14 +194,6 @@ class PatchAgent:
             total_tokens, tool_calls=0, stop_reason.
         """
         file_contents = self._build_file_contents(retrieved_files)
-        if not file_contents:
-            return None, {
-                "prompt_tokens": 0,
-                "candidate_tokens": 0,
-                "total_tokens": 0,
-                "tool_calls": 0,
-                "stop_reason": "no_readable_files",
-            }
 
         prompt = build_patch_prompt(issue_text, file_contents, correction_context=correction_context)
         total_prompt = 0

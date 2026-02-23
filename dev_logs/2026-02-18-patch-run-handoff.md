@@ -13,7 +13,7 @@ You are picking up at the point of actually running it with live API calls and D
 ## Repo State
 
 - Branch: `main`, commit `8c86d8f` — clean working tree, nothing uncommitted.
-- 89 tests passing: `/.venv/bin/python -m pytest tests/ -q`
+- 112 tests passing: `./.venv/bin/python -m unittest discover -s tests -v`
 - All retrieval evaluation results are in `results/clean_eval_20260211_201431/`
   (11 valid cells, langchain excluded with `valid:false`).
 - Patch pipeline dry-run was already confirmed working (produces empty patches
@@ -29,7 +29,7 @@ Must be set in `.env` (the file is gitignored):
 GEMINI_API_KEY=<your key>
 ```
 The pipeline reads it with `python-dotenv` on startup.
-Model used: `gemini-2.0-flash` (both retrieval manager and patch agent).
+Models used: retrieval manager = `gemini-3-flash-preview`, patch agent = `gemini-3-flash-preview` (set in the manifest; see `patch_manifests/swebench_verified_requests_oracle_v1.yaml`).
 
 ### 2. Docker daemon
 Must be running. The SWE-bench harness pulls and runs Docker containers.

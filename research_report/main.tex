@@ -1,6 +1,7 @@
-\documentclass[11pt]{article}
+\documentclass[10pt,twocolumn]{article}
 
-\usepackage[margin=1in]{geometry}
+\usepackage[margin=0.75in,top=0.9in]{geometry}
+\usepackage{balance}
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage{lmodern}
@@ -14,6 +15,9 @@
 \usepackage{hyperref}
 \usepackage{xcolor}
 \usepackage{enumitem}
+\usepackage[protrusion=true,expansion=true]{microtype}
+
+\graphicspath{{figures/}}
 
 \hypersetup{
   colorlinks=true,
@@ -22,9 +26,15 @@
   urlcolor=blue!60!black
 }
 
-\title{GraphManager: Cost-Aware Graph-Guided Retrieval\\for Issue Localization in Software Repositories}
+% -----------------------------------------------------------------------
+% ARCHIVE NOTICE: This is the V1 pilot paper (archived reference only).
+% Methodological gaps were identified after completion; see v2_next_session_plan.md
+% for the V2 research agenda. Do NOT treat results here as final claims.
+% -----------------------------------------------------------------------
+
+\title{GraphManager: Cost-Aware Graph-Guided Retrieval\\for Issue Localization in Software Repositories\\[0.5em]{\normalsize\textcolor{red}{\textbf{[DRAFT — V1 PILOT — ARCHIVED]}}}}
 \author{Author Name(s)}
-\date{\today}
+\date{\today\ \textcolor{red}{(V1 archived — see v2\_next\_session\_plan.md)}}
 
 \begin{document}
 \maketitle
@@ -39,6 +49,7 @@
 \input{sections/07_threats_to_validity}
 \input{sections/08_conclusion}
 
+\balance
 \bibliographystyle{plainnat}
 \bibliography{references}
 

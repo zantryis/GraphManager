@@ -1,0 +1,37 @@
+dataset_name: SWE-bench/SWE-bench_Verified
+split: test
+repo_name: sphinx-doc/sphinx
+source_prefixes:
+- sphinx
+retrieval_method: gm_progressive
+manager_max_turns: 8
+patch_max_turns: 1
+patch_max_output_tokens: 65536
+patch_max_file_chars: 200000
+api_timeout_s: 180
+manager_model: gemini-3-flash-preview
+patch_model: gemini-3-flash-preview
+rate_limit_max_retries: 2
+rate_limit_initial_delay_s: 0.5
+rate_limit_backoff_multiplier: 1.7
+rate_limit_max_delay_s: 5.0
+rate_limit_jitter_s: 0.2
+per_instance_cooldown_s: 0.0
+instance_wall_clock_cap_s: 480
+patch_apply_repair_retries: 1
+patch_retrieval_retry_max: 0
+patch_redact_paths_in_issue_text: false
+retrieval_redact_paths_in_issue_text: true
+instance_ids:
+- sphinx-doc__sphinx-10466
+- sphinx-doc__sphinx-7440
+- sphinx-doc__sphinx-7454
+- sphinx-doc__sphinx-7748
+- sphinx-doc__sphinx-7757
+- sphinx-doc__sphinx-7985
+- sphinx-doc__sphinx-8265
+- sphinx-doc__sphinx-8551
+- sphinx-doc__sphinx-9230
+- sphinx-doc__sphinx-9320
+- sphinx-doc__sphinx-9591
+- sphinx-doc__sphinx-9658

@@ -1,0 +1,17 @@
+{
+  "deterministic_retrieval": {
+    "seed_k": 10,
+    "depth": 2,
+    "neighbor_cap": 12,
+    "min_return_files": 1,
+    "score_ratio_cutoff": 0.821957,
+    "min_score_cutoff": 0.058153,
+    "hub_degree_threshold": 12,
+    "hub_penalty_scale": 0.360954,
+    "w_sem": 0.066121,
+    "w_graph": 0.405338,
+    "w_conf": 0.137455,
+    "w_hint": 0.086552,
+    "w_pen": 0.304534
+  }
+}

@@ -82,11 +82,11 @@ def normalize_file_paths(paths: list[str]) -> list[str]:
 
 def compute_metrics(predicted: list[str], gold: list[str]) -> dict:
     """Compute precision, recall, and F1 at the file level."""
-    if not predicted and not gold:
-        return {"precision": 1.0, "recall": 1.0, "f1": 1.0}
-    if not predicted:
-        return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
     if not gold:
+        # Empty gold indicates a data-loading error. Do NOT return F1=1.0 for the
+        # empty-vs-empty case — that silently inflates mean F1 across instances.
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "skipped_empty_gold": True}
+    if not predicted:
         return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
 
     pred_set = set(predicted)
@@ -135,44 +135,64 @@ def group_issues_by_base_commit(issues: list[dict]) -> list[tuple[str | None, li
     return result
 
 
-def validate_commit_context(context: dict) -> None:
-    """Raise ValueError if any index built for a commit context is empty.
+def validate_commit_context(
+    context: dict,
+    *,
+    required_methods: tuple[str, ...] | None = None,
+) -> None:
+    """Raise ValueError if any required index for this context is empty.
 
-    An empty index (setup_embedding_tokens == 0 for a group of methods) means
-    source_prefixes matched no Python files. This produces silent all-zero F1
-    results that pass CI gates — a dangerous false-positive.
-
-    Call this immediately after get_or_build_commit_context() before evaluating
-    any issues against the context.
+    An empty index (setup_embedding_tokens == 0 for a required method family)
+    means source_prefixes matched no Python files. This can silently produce
+    all-zero F1 results that pass CI gates.
     """
     setup_costs = context.get("setup_costs", {})
+    graph_methods = {"gm_progressive", "gm_baseline", "gm_deterministic"}
+    rag_function_methods = {"rag_progressive", "rag_baseline", "raw_rag_function"}
+    rag_fixed_methods = {"raw_rag_fixed"}
+    required = set(required_methods or ALL_METHODS)
+    unknown = required - set(ALL_METHODS)
+    if unknown:
+        unknown_list = ", ".join(sorted(unknown))
+        raise ValueError(f"Unknown required methods in validate_commit_context: {unknown_list}")
 
-    # Graph index: representative method is gm_progressive.
-    graph_tokens = int(setup_costs.get("gm_progressive", {}).get("embedding_tokens", 0) or 0)
-    if graph_tokens == 0:
-        raise ValueError(
-            "Graph index is empty (gm_progressive setup_embedding_tokens=0). "
-            "source_prefixes likely matches no Python files in the repo at this commit. "
-            "Check source_prefixes against the actual directory layout."
-        )
+    needs_graph = bool(required & graph_methods)
+    needs_rag_function = bool(required & rag_function_methods)
+    needs_rag_fixed = bool(required & rag_fixed_methods)
 
-    # RAG function index: representative method is rag_progressive.
-    rag_func_tokens = int(setup_costs.get("rag_progressive", {}).get("embedding_tokens", 0) or 0)
-    if rag_func_tokens == 0:
-        raise ValueError(
-            "RAG function index is empty (rag_progressive setup_embedding_tokens=0). "
-            "source_prefixes likely matches no Python files in the repo at this commit. "
-            "Check source_prefixes against the actual directory layout."
+    if needs_graph:
+        graph_tokens = max(
+            int(setup_costs.get(method, {}).get("embedding_tokens", 0) or 0)
+            for method in graph_methods
         )
+        if graph_tokens == 0:
+            raise ValueError(
+                "Graph index is empty (gm_* setup_embedding_tokens=0). "
+                "source_prefixes likely matches no Python files in the repo at this commit. "
+                "Check source_prefixes against the actual directory layout."
+            )
 
-    # RAG fixed index: raw_rag_fixed.
-    rag_fixed_tokens = int(setup_costs.get("raw_rag_fixed", {}).get("embedding_tokens", 0) or 0)
-    if rag_fixed_tokens == 0:
-        raise ValueError(
-            "RAG fixed index is empty (raw_rag_fixed setup_embedding_tokens=0). "
-            "source_prefixes likely matches no Python files in the repo at this commit. "
-            "Check source_prefixes against the actual directory layout."
+    if needs_rag_function:
+        rag_func_tokens = max(
+            int(setup_costs.get(method, {}).get("embedding_tokens", 0) or 0)
+            for method in rag_function_methods
         )
+        if rag_func_tokens == 0:
+            raise ValueError(
+                "RAG function index is empty (rag_progressive/rag_baseline/raw_rag_function "
+                "setup_embedding_tokens=0). source_prefixes likely matches no Python files "
+                "in the repo at this commit. Check source_prefixes against the actual "
+                "directory layout."
+            )
+
+    if needs_rag_fixed:
+        rag_fixed_tokens = int(setup_costs.get("raw_rag_fixed", {}).get("embedding_tokens", 0) or 0)
+        if rag_fixed_tokens == 0:
+            raise ValueError(
+                "RAG fixed index is empty (raw_rag_fixed setup_embedding_tokens=0). "
+                "source_prefixes likely matches no Python files in the repo at this commit. "
+                "Check source_prefixes against the actual directory layout."
+            )
 
 
 def build_issue_groups(
@@ -391,6 +411,7 @@ def run_experiment(
     deterministic_w_conf: float = DEFAULT_WEIGHTS["w_conf"],
     deterministic_w_hint: float = DEFAULT_WEIGHTS["w_hint"],
     deterministic_w_pen: float = DEFAULT_WEIGHTS["w_pen"],
+    methods: tuple[str, ...] | None = None,
 ):
     """
     Main experiment: compare Graph-Manager vs RAG-Agent vs Raw-RAG
@@ -409,6 +430,14 @@ def run_experiment(
     # Initialize Gemini client
     client = genai.Client(api_key=gemini_api_key)
     print("Gemini client initialized.")
+    enabled_methods = tuple(methods or ALL_METHODS)
+    if not enabled_methods:
+        raise ValueError("At least one retrieval method must be enabled")
+    unknown_methods = sorted(set(enabled_methods) - set(ALL_METHODS))
+    if unknown_methods:
+        raise ValueError(f"Unsupported methods requested: {', '.join(unknown_methods)}")
+    enabled_method_set = set(enabled_methods)
+    print(f"Enabled methods: {', '.join(enabled_methods)}")
 
     # Step 1: Load issues
     print(f"\n=== Step 1: Loading {repo_name} issues ===")
@@ -493,57 +522,91 @@ def run_experiment(
             repo_git.git.checkout(base_commit, force=True)
         used_commit = repo_git.head.commit.hexsha
         print(f"  Building indices for {used_commit[:12]}...")
+        graph = None
+        graph_index = None
+        rag_func = None
+        rag_fixed = None
+        graph_file_paths = set()
+        rag_function_file_paths = set()
+        rag_fixed_file_paths = set()
+        graph_setup = {"build_time_s": 0.0, "embedding_tokens": 0}
+        rag_func_setup = {"build_time_s": 0.0, "embedding_tokens": 0}
+        rag_fixed_setup = {"build_time_s": 0.0, "embedding_tokens": 0}
 
-        t0 = time.time()
-        builder = GraphBuilder(repo_dir, include_prefixes=source_prefixes)
-        graph = builder.build()
-        graph_build_time = time.time() - t0
-        print(
-            f"    Graph: {graph.number_of_nodes()} nodes, "
-            f"{graph.number_of_edges()} edges ({graph_build_time:.1f}s)"
+        needs_graph = bool(enabled_method_set & {"gm_deterministic", "gm_progressive", "gm_baseline"})
+        needs_rag_function = bool(
+            enabled_method_set & {"rag_progressive", "rag_baseline", "raw_rag_function"}
         )
-        commit_graph_path = results_path / f"graph_{used_commit[:12]}.json"
-        builder.save(str(commit_graph_path))
-        canonical_graph_path = results_path / "graph.json"
-        if not canonical_graph_path.exists():
-            shutil.copy2(commit_graph_path, canonical_graph_path)
+        needs_rag_fixed = "raw_rag_fixed" in enabled_method_set
 
-        t0 = time.time()
-        graph_index = GraphIndex(graph, client)
-        graph_index.build()
-        graph_index_time = time.time() - t0
-        graph_setup = {
-            "build_time_s": graph_build_time + graph_index_time,
-            "embedding_tokens": int(graph_index.embedding_tokens_estimate),
-        }
+        if needs_graph:
+            t0 = time.time()
+            builder = GraphBuilder(repo_dir, include_prefixes=source_prefixes)
+            graph = builder.build()
+            graph_build_time = time.time() - t0
+            print(
+                f"    Graph: {graph.number_of_nodes()} nodes, "
+                f"{graph.number_of_edges()} edges ({graph_build_time:.1f}s)"
+            )
+            commit_graph_path = results_path / f"graph_{used_commit[:12]}.json"
+            builder.save(str(commit_graph_path))
+            canonical_graph_path = results_path / "graph.json"
+            if not canonical_graph_path.exists():
+                shutil.copy2(commit_graph_path, canonical_graph_path)
 
-        t0 = time.time()
-        rag_func = RAGIndex(
-            repo_dir,
-            client,
-            chunk_strategy="function",
-            include_prefixes=source_prefixes,
-        )
-        rag_func.build()
-        rag_func_time = time.time() - t0
-        rag_func_setup = {
-            "build_time_s": rag_func_time,
-            "embedding_tokens": int(rag_func.embedding_tokens_estimate),
-        }
+            t0 = time.time()
+            graph_index = GraphIndex(graph, client)
+            graph_index.build()
+            graph_index_time = time.time() - t0
+            graph_setup = {
+                "build_time_s": graph_build_time + graph_index_time,
+                "embedding_tokens": int(graph_index.embedding_tokens_estimate),
+            }
+            graph_file_paths = {
+                str(node_id)
+                for node_id, node_data in graph.nodes(data=True)
+                if node_data.get("type") == "file" and str(node_id).endswith(".py")
+            }
 
-        t0 = time.time()
-        rag_fixed = RAGIndex(
-            repo_dir,
-            client,
-            chunk_strategy="fixed",
-            include_prefixes=source_prefixes,
-        )
-        rag_fixed.build()
-        rag_fixed_time = time.time() - t0
-        rag_fixed_setup = {
-            "build_time_s": rag_fixed_time,
-            "embedding_tokens": int(rag_fixed.embedding_tokens_estimate),
-        }
+        if needs_rag_function:
+            t0 = time.time()
+            rag_func = RAGIndex(
+                repo_dir,
+                client,
+                chunk_strategy="function",
+                include_prefixes=source_prefixes,
+            )
+            rag_func.build()
+            rag_func_time = time.time() - t0
+            rag_func_setup = {
+                "build_time_s": rag_func_time,
+                "embedding_tokens": int(rag_func.embedding_tokens_estimate),
+            }
+            rag_function_file_paths = {
+                str(chunk.get("file", ""))
+                for chunk in rag_func.chunks
+                if chunk.get("file")
+            }
+
+        if needs_rag_fixed:
+            t0 = time.time()
+            rag_fixed = RAGIndex(
+                repo_dir,
+                client,
+                chunk_strategy="fixed",
+                include_prefixes=source_prefixes,
+            )
+            rag_fixed.build()
+            rag_fixed_time = time.time() - t0
+            rag_fixed_setup = {
+                "build_time_s": rag_fixed_time,
+                "embedding_tokens": int(rag_fixed.embedding_tokens_estimate),
+            }
+            rag_fixed_file_paths = {
+                str(chunk.get("file", ""))
+                for chunk in rag_fixed.chunks
+                if chunk.get("file")
+            }
 
         setup_costs = {
             "gm_deterministic": graph_setup,
@@ -564,24 +627,12 @@ def run_experiment(
             "graph_index": graph_index,
             "rag_function_index": rag_func,
             "rag_fixed_index": rag_fixed,
-            "graph_file_paths": {
-                str(node_id)
-                for node_id, node_data in graph.nodes(data=True)
-                if node_data.get("type") == "file" and str(node_id).endswith(".py")
-            },
-            "rag_function_file_paths": {
-                str(chunk.get("file", ""))
-                for chunk in rag_func.chunks
-                if chunk.get("file")
-            },
-            "rag_fixed_file_paths": {
-                str(chunk.get("file", ""))
-                for chunk in rag_fixed.chunks
-                if chunk.get("file")
-            },
+            "graph_file_paths": graph_file_paths,
+            "rag_function_file_paths": rag_function_file_paths,
+            "rag_fixed_file_paths": rag_fixed_file_paths,
             "setup_costs": setup_costs,
         }
-        validate_commit_context(context)
+        validate_commit_context(context, required_methods=enabled_methods)
         commit_context_cache[cache_key] = context
         return context
 
@@ -593,51 +644,66 @@ def run_experiment(
         )
         context = get_or_build_commit_context(base_commit)
 
-        gm_progressive = ManagerAgent(
-            context["graph"], context["graph_index"], client, retrieval_mode="progressive"
-        )
-        gm_deterministic = DeterministicGraphRetriever(
-            context["graph"],
-            context["graph_index"],
-            seed_k=deterministic_seed_k,
-            depth=deterministic_depth,
-            neighbor_cap=deterministic_neighbor_cap,
-            min_return_files=deterministic_min_return_files,
-            score_ratio_cutoff=deterministic_score_ratio_cutoff,
-            min_score_cutoff=deterministic_min_score_cutoff,
-            hub_degree_threshold=deterministic_hub_degree_threshold,
-            hub_penalty_scale=deterministic_hub_penalty_scale,
-            w_sem=deterministic_w_sem,
-            w_graph=deterministic_w_graph,
-            w_conf=deterministic_w_conf,
-            w_hint=deterministic_w_hint,
-            w_pen=deterministic_w_pen,
-        )
-        gm_baseline = ManagerAgent(
-            context["graph"], context["graph_index"], client, retrieval_mode="baseline"
-        )
-        rag_progressive = RAGAgent(
-            context["rag_function_index"], client, retrieval_mode="progressive"
-        )
-        rag_baseline = RAGAgent(
-            context["rag_function_index"], client, retrieval_mode="baseline"
-        )
-        raw_rag_func_agent = RawRAG(context["rag_function_index"])
-        raw_rag_fixed_agent = RawRAG(context["rag_fixed_index"])
+        deterministic_methods = []
+        if "gm_deterministic" in enabled_method_set:
+            gm_deterministic = DeterministicGraphRetriever(
+                context["graph"],
+                context["graph_index"],
+                seed_k=deterministic_seed_k,
+                depth=deterministic_depth,
+                neighbor_cap=deterministic_neighbor_cap,
+                min_return_files=deterministic_min_return_files,
+                score_ratio_cutoff=deterministic_score_ratio_cutoff,
+                min_score_cutoff=deterministic_min_score_cutoff,
+                hub_degree_threshold=deterministic_hub_degree_threshold,
+                hub_penalty_scale=deterministic_hub_penalty_scale,
+                w_sem=deterministic_w_sem,
+                w_graph=deterministic_w_graph,
+                w_conf=deterministic_w_conf,
+                w_hint=deterministic_w_hint,
+                w_pen=deterministic_w_pen,
+            )
+            deterministic_methods.append(
+                ("gm_deterministic", "GM (deterministic)", gm_deterministic)
+            )
 
-        deterministic_methods = [
-            ("gm_deterministic", "GM (deterministic)", gm_deterministic),
-        ]
-        agentic_methods = [
-            ("gm_progressive", "GM (progressive)", gm_progressive, manager_max_turns),
-            ("gm_baseline", "GM (baseline)", gm_baseline, manager_max_turns),
-            ("rag_progressive", "RAG (progressive)", rag_progressive, rag_max_turns),
-            ("rag_baseline", "RAG (baseline)", rag_baseline, rag_max_turns),
-        ]
-        raw_methods = [
-            ("raw_rag_function", "Raw-RAG (func)", raw_rag_func_agent),
-            ("raw_rag_fixed", "Raw-RAG (fixed)", raw_rag_fixed_agent),
-        ]
+        agentic_methods = []
+        if "gm_progressive" in enabled_method_set:
+            gm_progressive = ManagerAgent(
+                context["graph"], context["graph_index"], client, retrieval_mode="progressive"
+            )
+            agentic_methods.append(
+                ("gm_progressive", "GM (progressive)", gm_progressive, manager_max_turns)
+            )
+        if "gm_baseline" in enabled_method_set:
+            gm_baseline = ManagerAgent(
+                context["graph"], context["graph_index"], client, retrieval_mode="baseline"
+            )
+            agentic_methods.append(
+                ("gm_baseline", "GM (baseline)", gm_baseline, manager_max_turns)
+            )
+        if "rag_progressive" in enabled_method_set:
+            rag_progressive = RAGAgent(
+                context["rag_function_index"], client, retrieval_mode="progressive"
+            )
+            agentic_methods.append(
+                ("rag_progressive", "RAG (progressive)", rag_progressive, rag_max_turns)
+            )
+        if "rag_baseline" in enabled_method_set:
+            rag_baseline = RAGAgent(
+                context["rag_function_index"], client, retrieval_mode="baseline"
+            )
+            agentic_methods.append(
+                ("rag_baseline", "RAG (baseline)", rag_baseline, rag_max_turns)
+            )
+
+        raw_methods = []
+        if "raw_rag_function" in enabled_method_set:
+            raw_rag_func_agent = RawRAG(context["rag_function_index"])
+            raw_methods.append(("raw_rag_function", "Raw-RAG (func)", raw_rag_func_agent))
+        if "raw_rag_fixed" in enabled_method_set:
+            raw_rag_fixed_agent = RawRAG(context["rag_fixed_index"])
+            raw_methods.append(("raw_rag_fixed", "Raw-RAG (fixed)", raw_rag_fixed_agent))
 
         for issue in commit_issues:
             issue_index += 1
@@ -801,6 +867,7 @@ def run_experiment(
         "evaluation_track": evaluation_track,
         "snapshot_commit": snapshot_commit,
         "seed": seed,
+        "enabled_methods": list(enabled_methods),
         "deterministic_retrieval": {
             "seed_k": deterministic_seed_k,
             "depth": deterministic_depth,

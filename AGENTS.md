@@ -41,10 +41,10 @@ Use `dev_logs/TEMPLATE.md` for the structure.
 
 See `CURRENT_STATE.md` for the authoritative task list.
 
-High-level:
-- Workstream A: run `gm_deterministic` on Flask, Requests, Pytest
-- Workstream B: run clean 8-instance patching baseline, then oracle, then 30-instance pilot
-- Workstream C: blocked on B results; fill gm_deterministic rows in Table 1 when A is done
+Current workstream status:
+- Workstream A (retrieval eval): [ACTIVE] — retrieval matrix complete; deterministic reruns may still be pending
+- Workstream B (patching pipeline): [DONE] — N=100 pilot complete, numbers locked in `CLAIMS_LOCK.md`
+- Workstream C (paper writing): [DONE] — 15-page two-column paper, all Table 3 cells filled, clean compile
 
 ---
 
@@ -55,9 +55,16 @@ High-level:
 ./.venv/bin/python run_experiment.py --repo-name pallets/flask \
   --source-prefix src/flask --n-issues 10 --manager-max-turns 6 --rag-max-turns 6
 
-# Patching run
-./.venv/bin/python run_patch.py patch_manifests/swebench_verified_requests_v1.yaml \
-  --evaluate
+# Patching — Stage 1: generate patches (no Docker/Modal needed)
+./.venv/bin/python run_patch.py --manifest patch_manifests/swebench_verified_requests_v1.yaml
+
+# Patching — Stage 1+2 combined (evaluate inline, requires Docker or --modal)
+./.venv/bin/python run_patch.py --manifest patch_manifests/swebench_verified_requests_v1.yaml \
+  --evaluate [--modal]
+
+# Patching — Stage 2 only: run harness on an existing predictions.json
+./.venv/bin/python run_patch.py --manifest patch_manifests/swebench_verified_requests_v1.yaml \
+  --evaluate-only --run-dir results/patch_runs/<run_id> [--modal]
 
 # Test suite
 ./.venv/bin/python -m unittest discover -s tests -v

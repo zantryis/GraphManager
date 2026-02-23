@@ -1,0 +1,37 @@
+dataset_name: SWE-bench/SWE-bench_Verified
+split: test
+repo_name: sympy/sympy
+source_prefixes:
+- sympy
+retrieval_method: oracle
+manager_max_turns: 8
+patch_max_turns: 1
+patch_max_output_tokens: 65536
+patch_max_file_chars: 200000
+api_timeout_s: 180
+manager_model: gemini-3-flash-preview
+patch_model: gemini-3-flash-preview
+rate_limit_max_retries: 2
+rate_limit_initial_delay_s: 0.5
+rate_limit_backoff_multiplier: 1.7
+rate_limit_max_delay_s: 5.0
+rate_limit_jitter_s: 0.2
+per_instance_cooldown_s: 0.0
+instance_wall_clock_cap_s: 480
+patch_apply_repair_retries: 1
+patch_retrieval_retry_max: 0
+patch_redact_paths_in_issue_text: false
+retrieval_redact_paths_in_issue_text: true
+instance_ids:
+- sympy__sympy-12481
+- sympy__sympy-13852
+- sympy__sympy-15017
+- sympy__sympy-16766
+- sympy__sympy-17318
+- sympy__sympy-17655
+- sympy__sympy-18189
+- sympy__sympy-19637
+- sympy__sympy-20154
+- sympy__sympy-20801
+- sympy__sympy-23534
+- sympy__sympy-24562

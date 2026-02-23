@@ -15,7 +15,7 @@ We draw evaluation instances from two benchmark families:
 
 We evaluate on seven repositories spanning four application domains, drawn from both SWE-bench and SWE-PolyBench:
 
-\begin{table}[h]
+\begin{table*}[t]
 \centering
 \small
 \begin{tabular}{llllr}
@@ -33,7 +33,7 @@ Repository & Domain & Benchmark & Source prefix & $n$ \\
 \end{tabular}
 \caption{Repositories in the evaluation matrix. $n$ = number of issues per repository per track. Source prefix restricts graph construction and retrieval to relevant subdirectories.}
 \label{tab:repos}
-\end{table}
+\end{table*}
 
 The selection covers both small, well-structured libraries (Flask, Requests) and larger, more complex codebases (Keras, LangChain), providing diversity in graph structure and retrieval difficulty.
 
@@ -48,7 +48,7 @@ For each repository, we select issues using a deterministic protocol:
   \item Pin the resulting instance IDs in a YAML manifest with a unique \texttt{issue\_set\_id}.
 \end{enumerate}
 
-The manifest is version-controlled and used for all subsequent runs, ensuring that different methods and repeat runs are evaluated on exactly the same issue set. Example manifest IDs include \texttt{issues\_swebench\_requests\_v2\_10} and \texttt{issues\_polybench\_ytdlp\_v2\_5}.
+The manifest is version-controlled and used for all subsequent runs, ensuring that different methods and repeat runs are evaluated on exactly the same issue set. Example: \texttt{issues\_swebench\_requests\_v2\_10}.
 
 \subsection{Evaluation Tracks}
 \label{sec:eval_tracks}
@@ -114,18 +114,37 @@ Results are promoted to the manuscript only when:
 \label{sec:infrastructure}
 
 \begin{itemize}[leftmargin=1.5em]
-  \item \textbf{Language model}: \texttt{gemini-2.0-flash} \citep{gemini2024} for all LLM-guided retrieval.
+  \item \textbf{Retrieval language model}: \texttt{gemini-3-flash-preview} for all LLM-guided retrieval agents.
   \item \textbf{Embedding model}: \texttt{gemini-embedding-001} for all vector embeddings.
   \item \textbf{Vector index}: FAISS \citep{johnson2021faiss} flat inner-product index.
   \item \textbf{AST parsing}: \texttt{tree-sitter} \citep{brunsfeld2018treesitter} with the Python grammar.
   \item \textbf{Graph library}: NetworkX \citep{hagberg2008networkx}.
-  \item \textbf{Agent turn budget}: 4 turns per issue for both graph and RAG agents.
+  \item \textbf{Agent turn budget}: up to 8 turns per issue for both graph and RAG agents.
 \end{itemize}
 
 \subsection{Reproducibility}
 \label{sec:reproducibility}
 
-All experiment configurations are specified in versioned YAML manifests (e.g., \texttt{experiments\_matrix\_v2.yaml}) with pinned instance IDs and snapshot commits. Run outputs are archived with timestamps, and report-ready numbers are sourced from frozen artifact bundles containing raw results, aggregated summaries, and manifest metadata. The full evaluation pipeline is executable via:
-\begin{verbatim}
-./.venv/bin/python run_suite.py experiments_matrix_v2.yaml
-\end{verbatim}
+All experiment configurations are specified in versioned YAML manifests (e.g., \texttt{experiments\_matrix\_v2.yaml}) with pinned instance IDs and snapshot commits. Run outputs are archived with timestamps, and report-ready numbers are sourced from frozen artifact bundles containing raw results, aggregated summaries, and manifest metadata. The full evaluation pipeline is executable via
+\texttt{python run\_suite.py experiments\_matrix\_v2.yaml}.
+
+\subsection{Patching Pilot Setup}
+\label{sec:patching_setup}
+
+To validate that retrieval quality translates to end-to-end issue resolution, we conduct a patching pilot using the SWE-bench Verified subset. We draw a frozen split of $N=100$ instances across 9 repositories (astropy, matplotlib, Flask, requests, xarray, pytest, scikit-learn, sphinx-doc, sympy), stratified by per-repository Verified instance count. Instance IDs are pinned in a versioned manifest prior to any runs (\texttt{patch\_manifests/verified\_n100\_split\_v1.json}).
+
+We evaluate four methods:
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{Oracle}: gold patch files fed directly to the patch agent (retrieval ceiling).
+  \item \textbf{GM-progressive}: graph-guided retrieval feeds the retrieved file set to the patch agent.
+  \item \textbf{RAG-progressive}: RAG retrieval feeds the retrieved file set to the patch agent.
+  \item \textbf{None} (cold-start): the patch agent receives only the issue text with no retrieval context.
+\end{itemize}
+
+The patch agent uses \texttt{gemini-3-flash-preview} with a single generation attempt per instance (\texttt{patch\_max\_turns=1}), a 65,536-token output budget, a 200K-character file context limit, and a 480-second wall-clock cap per instance (\texttt{instance\_wall\_clock\_cap\_s=480}). Patches are evaluated using the official SWE-bench Docker harness for execution-based pass/fail assessment. Results are explicitly labeled as a pilot study: single run per method, no repeats.
+
+\paragraph{Cost accounting disclosure.}
+Frozen GM and RAG runs were produced under a dual-build pipeline in which both graph and RAG indices were built for GM and RAG methods respectively. We therefore report two cost views: \emph{method-accounted} (design intent: GM pays only for graph build; RAG pays only for RAG index build) and \emph{as-run-consumed} (actual API spend including the dual-build overhead). A split-build fix is implemented in \texttt{run\_patch.py} for future runs; the as-run view captures the actual cost incurred during this pilot.
+
+\paragraph{Timeout accounting.}
+Instances that exceed the 480-second wall-clock cap are included in resolved-rate denominators (all-in primary metric). A timeout-excluded sensitivity analysis is reported alongside to separate method quality from infrastructure-imposed censoring.
