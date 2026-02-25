@@ -145,7 +145,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run patch manifests in parallel across repos")
     parser.add_argument("--manifest-list", required=True, help="Path to text file with one manifest path per line")
     parser.add_argument("--results-dir", default="results/v2_full_runs", help="Results root passed to run_patch.py")
-    parser.add_argument("--max-parallel-repos", type=int, default=3, help="Number of repos to run concurrently")
+    parser.add_argument("--max-parallel-repos", type=int, default=6, help="Number of repos to run concurrently (default: 6; safe with patch_agent retry on 429)")
     parser.add_argument(
         "--manifest-timeout-s",
         type=int,
@@ -172,8 +172,8 @@ def main() -> int:
     parser.add_argument(
         "--run-workers",
         type=int,
-        default=1,
-        help="Issue-level worker count passed to each run_patch.py invocation.",
+        default=2,
+        help="Issue-level worker count passed to each run_patch.py invocation (default: 2; safe with 6 repos = 12 concurrent API calls).",
     )
     parser.add_argument("--log", default=None, help="Global runner log path")
     parser.add_argument("--failure-log", default=None, help="Failure log path")

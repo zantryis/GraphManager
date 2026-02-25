@@ -83,7 +83,7 @@ tools/
   run_manifest_pool.py      parallel manifest pool runner
   patch_dashboard.py        web dashboard for run monitoring
 patch_manifests/            YAML manifests for patch runs
-  v2_verified/              V2 campaign manifests (12 repos x 8 methods)
+  v2_verified/              V2 campaign manifests (12 repos x 10 methods + oracle + pilots)
 experiments_matrix_v2.yaml  retrieval experiment matrix
 tests/                      unit tests (run before every commit)
 research_report/            LaTeX paper draft

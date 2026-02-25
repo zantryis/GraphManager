@@ -1,0 +1,39 @@
+\section{Related Work}
+\label{sec:related_work}
+
+\subsection{Repository-Level Benchmarks}
+\label{sec:rw_benchmarks}
+
+Evaluating code understanding systems at the repository level requires benchmarks that capture cross-file dependencies and real-world issue complexity. SWE-bench \citep{swebench2024} introduced a large-scale benchmark of real GitHub issues with executable patch validation, establishing the standard for evaluating automated issue resolution. SWE-PolyBench \citep{swepolybench2025} extended this paradigm to multiple programming languages and introduced retrieval-specific evaluation modes, including node-level metrics that align well with graph-based retrieval.
+
+Complementary benchmarks address adjacent tasks: RepoBench \citep{repobench2024} evaluates repository-level next-line code completion under cross-file context, while RepoExec \citep{repoexec2024} focuses on executable function completion with varying context budgets. We use SWE-bench as our primary evaluation dataset and SWE-PolyBench for cross-benchmark validation, as both provide the issue-level localization task that our retrieval methods target.
+
+\subsection{Graph-Based Code Retrieval}
+\label{sec:rw_graph_retrieval}
+
+Several recent systems exploit repository structure---dependency graphs, call graphs, and AST-derived relations---to improve code retrieval beyond flat embedding search.
+
+RepoGraph \citep{repograph2024} formalizes the repository graph as a first-class object for AI-driven software engineering, constructing file-level dependency graphs and demonstrating that hop-structured context assembly improves downstream code generation. RepoHyper \citep{repohyper2024} introduces a search-expand-refine pattern on semantic graphs, where an initial retrieval step is followed by graph-guided expansion with explicit budget control. GraphCoder \citep{graphcoder2024} applies graph-based coarse-to-fine reranking to repository-level code completion, using code context graphs to improve retrieval precision.
+
+RepoScope \citep{reposcope2025} addresses call chain-aware multi-view retrieval, constructing static call chains and using them as structured context views for code generation. Chinthareddy \citep{reliablegraphrag2026} compares AST-derived graphs against LLM-extracted knowledge graphs for code retrieval, finding that deterministic AST parsing provides more reliable structure than LLM-generated alternatives.
+
+Our graph construction follows the deterministic AST-first approach advocated by \citet{reliablegraphrag2026}, with modular import/call/type resolution inspired by the open-source \texttt{code-graph-rag} project \citep{codegraphrag}. We extend this foundation with confidence-tiered call edges, a multi-component deterministic scoring formula, and explicit cost accounting that prior graph retrieval work does not report.
+
+\subsection{Retrieval-Augmented Generation}
+\label{sec:rw_rag}
+
+Retrieval-augmented generation (RAG) \citep{lewis2020rag} augments language model generation with retrieved non-parametric evidence, and has become the dominant paradigm for grounding LLM outputs in code. Standard code RAG systems embed code chunks into a dense vector index and retrieve the top-$K$ most similar chunks given a query.
+
+GraphRAG \citep{edge2024graphrag} demonstrated that augmenting flat retrieval with graph-structured summaries improves query-focused summarization for general text. In the code domain, graph structure offers a natural complement to dense retrieval: import and call edges encode dependency paths that embedding similarity alone cannot capture. Our system uses vector similarity as the \emph{entry point} into the graph, combining the recall advantages of dense retrieval with the structural precision of graph navigation.
+
+\subsection{Automated Issue Resolution Systems}
+\label{sec:rw_issue_resolution}
+
+Automated systems for resolving software issues require accurate file localization as a critical first step. SWE-agent \citep{yang2024sweagent} provides an agent-computer interface for navigating and editing repositories, relying on interactive exploration to locate relevant files. Agentless \citep{xia2024agentless} takes a contrasting approach, decomposing issue resolution into localization and repair phases without persistent agent state, achieving competitive results with simpler orchestration. AutoCodeRover \citep{zhang2024autocoderover} combines code search with AST-aware context retrieval for autonomous program improvement.
+
+These systems highlight that file localization quality directly impacts downstream patch success, yet most evaluate localization only implicitly through end-to-end patch metrics. Our work isolates the retrieval step and evaluates it with explicit quality and cost metrics, providing a focused comparison of retrieval strategies that can inform any downstream system.
+
+\subsection{Positioning}
+\label{sec:rw_positioning}
+
+Our work sits at the intersection of graph-based code retrieval and cost-aware evaluation for issue localization. Unlike prior graph retrieval systems that report only quality metrics, we provide explicit three-component cost accounting (setup, LLM runtime, query embedding) and a dual-track evaluation protocol that separates strict commit-fidelity from amortized same-snapshot reuse. Unlike RAG-only systems, we demonstrate that structural graph navigation can achieve competitive retrieval quality at substantially lower total token cost.

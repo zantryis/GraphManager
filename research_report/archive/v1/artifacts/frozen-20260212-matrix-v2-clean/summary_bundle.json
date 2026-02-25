@@ -1,0 +1,1113 @@
+{
+  "pallets/flask/strict_commit_fidelity": {
+    "source_file": "results/clean_eval_20260211_201431/repeat_sets/20260211_202654_swe_bench_pallets_flask_strict_commit_fidelity_issues_swebench_flask_v2_10.json",
+    "n_runs": 3,
+    "gates": {
+      "min_repeats_met": true,
+      "pairwise_bootstrap_available": true,
+      "ci_ready": true
+    },
+    "amortization": {
+      "track_name": "strict_commit_fidelity",
+      "n_issues": 10,
+      "n_unique_commits": 10,
+      "commit_repeat_ratio": 0.0,
+      "cache_hit_rate": 0.0
+    },
+    "methods": {
+      "gm_progressive": {
+        "mean_f1": {
+          "mean": 0.6544444444444445,
+          "std": 0.040322771803609,
+          "min": 0.6233333333333333,
+          "max": 0.7
+        },
+        "setup_embedding_tokens": {
+          "mean": 153750.0,
+          "std": 0.0,
+          "min": 153750.0,
+          "max": 153750.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "gm_deterministic": {
+        "mean_f1": {
+          "mean": 0.48666666666666664,
+          "std": 0.0,
+          "min": 0.4866666666666667,
+          "max": 0.4866666666666667
+        },
+        "setup_embedding_tokens": {
+          "mean": 153750.0,
+          "std": 0.0,
+          "min": 153750.0,
+          "max": 153750.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_progressive": {
+        "mean_f1": {
+          "mean": 0.3536507936507936,
+          "std": 0.06394146510629492,
+          "min": 0.28523809523809524,
+          "max": 0.4119047619047619
+        },
+        "setup_embedding_tokens": {
+          "mean": 363430.0,
+          "std": 0.0,
+          "min": 363430.0,
+          "max": 363430.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_baseline": {
+        "mean_f1": {
+          "mean": 0.3333333333333333,
+          "std": 0.10408329997330665,
+          "min": 0.21666666666666665,
+          "max": 0.4166666666666667
+        },
+        "setup_embedding_tokens": {
+          "mean": 363430.0,
+          "std": 0.0,
+          "min": 363430.0,
+          "max": 363430.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "raw_rag_function": {
+        "mean_f1": {
+          "mean": 0.35012931512931517,
+          "std": 0.0,
+          "min": 0.3501293151293151,
+          "max": 0.3501293151293151
+        },
+        "setup_embedding_tokens": {
+          "mean": 363430.0,
+          "std": 0.0,
+          "min": 363430.0,
+          "max": 363430.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      }
+    },
+    "pairwise_delta_gm_vs_rag": {
+      "n_runs": 3,
+      "mean_delta": 0.3007936507936508,
+      "bootstrap_ci_95": [
+        0.2114285714285714,
+        0.4147619047619047
+      ]
+    }
+  },
+  "pallets/flask/same_snapshot_amortized": {
+    "source_file": "results/clean_eval_20260211_201431/repeat_sets/20260211_203650_swe_bench_pallets_flask_same_snapshot_amortized_issues_swebench_flask_v2_10.json",
+    "n_runs": 3,
+    "gates": {
+      "min_repeats_met": true,
+      "pairwise_bootstrap_available": true,
+      "ci_ready": true
+    },
+    "amortization": {
+      "track_name": "same_snapshot_amortized",
+      "n_issues": 10,
+      "n_unique_commits": 1,
+      "commit_repeat_ratio": 0.9,
+      "cache_hit_rate": 0.9
+    },
+    "methods": {
+      "gm_progressive": {
+        "mean_f1": {
+          "mean": 0.7399999999999999,
+          "std": 0.0,
+          "min": 0.74,
+          "max": 0.74
+        },
+        "setup_embedding_tokens": {
+          "mean": 14969.0,
+          "std": 0.0,
+          "min": 14969.0,
+          "max": 14969.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "gm_deterministic": {
+        "mean_f1": {
+          "mean": 0.54,
+          "std": 0.0,
+          "min": 0.54,
+          "max": 0.54
+        },
+        "setup_embedding_tokens": {
+          "mean": 14969.0,
+          "std": 0.0,
+          "min": 14969.0,
+          "max": 14969.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_progressive": {
+        "mean_f1": {
+          "mean": 0.3412698412698412,
+          "std": 0.054623704151015105,
+          "min": 0.2785714285714286,
+          "max": 0.37857142857142856
+        },
+        "setup_embedding_tokens": {
+          "mean": 35561.0,
+          "std": 0.0,
+          "min": 35561.0,
+          "max": 35561.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_baseline": {
+        "mean_f1": {
+          "mean": 0.22222222222222224,
+          "std": 0.03849001794597504,
+          "min": 0.2,
+          "max": 0.26666666666666666
+        },
+        "setup_embedding_tokens": {
+          "mean": 35561.0,
+          "std": 0.0,
+          "min": 35561.0,
+          "max": 35561.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "raw_rag_function": {
+        "mean_f1": {
+          "mean": 0.3408363858363858,
+          "std": 0.0,
+          "min": 0.3408363858363858,
+          "max": 0.3408363858363858
+        },
+        "setup_embedding_tokens": {
+          "mean": 35561.0,
+          "std": 0.0,
+          "min": 35561.0,
+          "max": 35561.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      }
+    },
+    "pairwise_delta_gm_vs_rag": {
+      "n_runs": 3,
+      "mean_delta": 0.39873015873015877,
+      "bootstrap_ci_95": [
+        0.36142857142857143,
+        0.46142857142857147
+      ]
+    }
+  },
+  "psf/requests/strict_commit_fidelity": {
+    "source_file": "results/clean_eval_20260211_201431/repeat_sets/20260211_205352_swe_bench_psf_requests_strict_commit_fidelity_issues_swebench_requests_v2_10.json",
+    "n_runs": 3,
+    "gates": {
+      "min_repeats_met": true,
+      "pairwise_bootstrap_available": true,
+      "ci_ready": true
+    },
+    "amortization": {
+      "track_name": "strict_commit_fidelity",
+      "n_issues": 10,
+      "n_unique_commits": 10,
+      "commit_repeat_ratio": 0.0,
+      "cache_hit_rate": 0.0
+    },
+    "methods": {
+      "gm_progressive": {
+        "mean_f1": {
+          "mean": 0.45555555555555555,
+          "std": 0.06938886664887109,
+          "min": 0.4,
+          "max": 0.5333333333333333
+        },
+        "setup_embedding_tokens": {
+          "mean": 107557.0,
+          "std": 0.0,
+          "min": 107557.0,
+          "max": 107557.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "gm_deterministic": {
+        "mean_f1": {
+          "mean": 0.4133333333333333,
+          "std": 0.0,
+          "min": 0.4133333333333333,
+          "max": 0.4133333333333333
+        },
+        "setup_embedding_tokens": {
+          "mean": 107557.0,
+          "std": 0.0,
+          "min": 107557.0,
+          "max": 107557.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_progressive": {
+        "mean_f1": {
+          "mean": 0.2665079365079365,
+          "std": 0.03284793981996012,
+          "min": 0.2419047619047619,
+          "max": 0.3038095238095238
+        },
+        "setup_embedding_tokens": {
+          "mean": 413571.0,
+          "std": 0.0,
+          "min": 413571.0,
+          "max": 413571.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_baseline": {
+        "mean_f1": {
+          "mean": 0.35333333333333333,
+          "std": 0.011547005383792493,
+          "min": 0.3466666666666667,
+          "max": 0.36666666666666664
+        },
+        "setup_embedding_tokens": {
+          "mean": 413571.0,
+          "std": 0.0,
+          "min": 413571.0,
+          "max": 413571.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "raw_rag_function": {
+        "mean_f1": {
+          "mean": 0.23833333333333337,
+          "std": 0.0,
+          "min": 0.23833333333333334,
+          "max": 0.23833333333333334
+        },
+        "setup_embedding_tokens": {
+          "mean": 413571.0,
+          "std": 0.0,
+          "min": 413571.0,
+          "max": 413571.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      }
+    },
+    "pairwise_delta_gm_vs_rag": {
+      "n_runs": 3,
+      "mean_delta": 0.18904761904761905,
+      "bootstrap_ci_95": [
+        0.12952380952380949,
+        0.2795238095238095
+      ]
+    }
+  },
+  "pytest-dev/pytest/strict_commit_fidelity": {
+    "source_file": "results/clean_eval_20260211_201431/repeat_sets/20260211_214022_swe_bench_pytest_dev_pytest_strict_commit_fidelity_issues_swebench_pytest_v2_10.json",
+    "n_runs": 3,
+    "gates": {
+      "min_repeats_met": true,
+      "pairwise_bootstrap_available": true,
+      "ci_ready": true
+    },
+    "amortization": {
+      "track_name": "strict_commit_fidelity",
+      "n_issues": 10,
+      "n_unique_commits": 10,
+      "commit_repeat_ratio": 0.0,
+      "cache_hit_rate": 0.0
+    },
+    "methods": {
+      "gm_progressive": {
+        "mean_f1": {
+          "mean": 0.5022222222222222,
+          "std": 0.05091750772173154,
+          "min": 0.44666666666666666,
+          "max": 0.5466666666666666
+        },
+        "setup_embedding_tokens": {
+          "mean": 439747.0,
+          "std": 0.0,
+          "min": 439747.0,
+          "max": 439747.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "gm_deterministic": {
+        "mean_f1": {
+          "mean": 0.45,
+          "std": 0.0,
+          "min": 0.45,
+          "max": 0.45
+        },
+        "setup_embedding_tokens": {
+          "mean": 439747.0,
+          "std": 0.0,
+          "min": 439747.0,
+          "max": 439747.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_progressive": {
+        "mean_f1": {
+          "mean": 0.45150793650793647,
+          "std": 0.03717819848960853,
+          "min": 0.4102380952380952,
+          "max": 0.48238095238095235
+        },
+        "setup_embedding_tokens": {
+          "mean": 1491043.0,
+          "std": 0.0,
+          "min": 1491043.0,
+          "max": 1491043.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_baseline": {
+        "mean_f1": {
+          "mean": 0.4055555555555555,
+          "std": 0.07876359377087681,
+          "min": 0.31666666666666665,
+          "max": 0.4666666666666667
+        },
+        "setup_embedding_tokens": {
+          "mean": 1491043.0,
+          "std": 0.0,
+          "min": 1491043.0,
+          "max": 1491043.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "raw_rag_function": {
+        "mean_f1": {
+          "mean": 0.22198412698412703,
+          "std": 0.0,
+          "min": 0.221984126984127,
+          "max": 0.221984126984127
+        },
+        "setup_embedding_tokens": {
+          "mean": 1491043.0,
+          "std": 0.0,
+          "min": 1491043.0,
+          "max": 1491043.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      }
+    },
+    "pairwise_delta_gm_vs_rag": {
+      "n_runs": 3,
+      "mean_delta": 0.05071428571428573,
+      "bootstrap_ci_95": [
+        -0.015238095238095217,
+        0.10309523809523813
+      ]
+    }
+  },
+  "tiangolo/fastapi/strict_commit_fidelity": {
+    "source_file": "results/clean_eval_20260211_201431/repeat_sets/20260211_215735_swe_bench_tiangolo_fastapi_strict_commit_fidelity_issues_swebench_fastapi_v2_10.json",
+    "n_runs": 3,
+    "gates": {
+      "min_repeats_met": true,
+      "pairwise_bootstrap_available": true,
+      "ci_ready": true
+    },
+    "amortization": {
+      "track_name": "strict_commit_fidelity",
+      "n_issues": 10,
+      "n_unique_commits": 7,
+      "commit_repeat_ratio": 0.3,
+      "cache_hit_rate": 0.3
+    },
+    "methods": {
+      "gm_progressive": {
+        "mean_f1": {
+          "mean": 0.48,
+          "std": 0.0,
+          "min": 0.48,
+          "max": 0.48
+        },
+        "setup_embedding_tokens": {
+          "mean": 67226.0,
+          "std": 0.0,
+          "min": 67226.0,
+          "max": 67226.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "gm_deterministic": {
+        "mean_f1": {
+          "mean": 0.40666666666666657,
+          "std": 0.0,
+          "min": 0.4066666666666666,
+          "max": 0.4066666666666666
+        },
+        "setup_embedding_tokens": {
+          "mean": 67226.0,
+          "std": 0.0,
+          "min": 67226.0,
+          "max": 67226.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_progressive": {
+        "mean_f1": {
+          "mean": 0.4114285714285714,
+          "std": 0.05229646866587301,
+          "min": 0.35238095238095235,
+          "max": 0.4519047619047619
+        },
+        "setup_embedding_tokens": {
+          "mean": 136889.0,
+          "std": 0.0,
+          "min": 136889.0,
+          "max": 136889.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_baseline": {
+        "mean_f1": {
+          "mean": 0.40888888888888886,
+          "std": 0.007698003589194964,
+          "min": 0.4,
+          "max": 0.4133333333333333
+        },
+        "setup_embedding_tokens": {
+          "mean": 136889.0,
+          "std": 0.0,
+          "min": 136889.0,
+          "max": 136889.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "raw_rag_function": {
+        "mean_f1": {
+          "mean": 0.25,
+          "std": 0.0,
+          "min": 0.25,
+          "max": 0.25
+        },
+        "setup_embedding_tokens": {
+          "mean": 136889.0,
+          "std": 0.0,
+          "min": 136889.0,
+          "max": 136889.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      }
+    },
+    "pairwise_delta_gm_vs_rag": {
+      "n_runs": 3,
+      "mean_delta": 0.06857142857142856,
+      "bootstrap_ci_95": [
+        0.028095238095238062,
+        0.12761904761904763
+      ]
+    }
+  },
+  "psf/requests/same_snapshot_amortized": {
+    "source_file": "results/clean_eval_20260211_201431/repeat_sets/20260211_221038_swe_bench_psf_requests_same_snapshot_amortized_issues_swebench_requests_v2_10.json",
+    "n_runs": 3,
+    "gates": {
+      "min_repeats_met": true,
+      "pairwise_bootstrap_available": true,
+      "ci_ready": true
+    },
+    "amortization": {
+      "track_name": "same_snapshot_amortized",
+      "n_issues": 10,
+      "n_unique_commits": 1,
+      "commit_repeat_ratio": 0.9,
+      "cache_hit_rate": 0.9
+    },
+    "methods": {
+      "gm_progressive": {
+        "mean_f1": {
+          "mean": 0.5444444444444444,
+          "std": 0.01924500897298752,
+          "min": 0.5333333333333333,
+          "max": 0.5666666666666667
+        },
+        "setup_embedding_tokens": {
+          "mean": 9018.0,
+          "std": 0.0,
+          "min": 9018.0,
+          "max": 9018.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "gm_deterministic": {
+        "mean_f1": {
+          "mean": 0.42333333333333334,
+          "std": 0.0,
+          "min": 0.42333333333333334,
+          "max": 0.42333333333333334
+        },
+        "setup_embedding_tokens": {
+          "mean": 9018.0,
+          "std": 0.0,
+          "min": 9018.0,
+          "max": 9018.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_progressive": {
+        "mean_f1": {
+          "mean": 0.30793650793650795,
+          "std": 0.01802828046285801,
+          "min": 0.29523809523809524,
+          "max": 0.32857142857142857
+        },
+        "setup_embedding_tokens": {
+          "mean": 36736.0,
+          "std": 0.0,
+          "min": 36736.0,
+          "max": 36736.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_baseline": {
+        "mean_f1": {
+          "mean": 0.3222222222222222,
+          "std": 0.03849001794597504,
+          "min": 0.3,
+          "max": 0.36666666666666664
+        },
+        "setup_embedding_tokens": {
+          "mean": 36736.0,
+          "std": 0.0,
+          "min": 36736.0,
+          "max": 36736.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "raw_rag_function": {
+        "mean_f1": {
+          "mean": 0.253010878010878,
+          "std": 0.0,
+          "min": 0.253010878010878,
+          "max": 0.253010878010878
+        },
+        "setup_embedding_tokens": {
+          "mean": 36736.0,
+          "std": 0.0,
+          "min": 36736.0,
+          "max": 36736.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      }
+    },
+    "pairwise_delta_gm_vs_rag": {
+      "n_runs": 3,
+      "mean_delta": 0.23650793650793647,
+      "bootstrap_ci_95": [
+        0.2333333333333333,
+        0.23809523809523805
+      ]
+    }
+  },
+  "pytest-dev/pytest/same_snapshot_amortized": {
+    "source_file": "results/clean_eval_20260211_201431/repeat_sets/20260211_222707_swe_bench_pytest_dev_pytest_same_snapshot_amortized_issues_swebench_pytest_v2_10.json",
+    "n_runs": 3,
+    "gates": {
+      "min_repeats_met": true,
+      "pairwise_bootstrap_available": true,
+      "ci_ready": true
+    },
+    "amortization": {
+      "track_name": "same_snapshot_amortized",
+      "n_issues": 10,
+      "n_unique_commits": 1,
+      "commit_repeat_ratio": 0.9,
+      "cache_hit_rate": 0.9
+    },
+    "methods": {
+      "gm_progressive": {
+        "mean_f1": {
+          "mean": 0.57,
+          "std": 0.03282952600598702,
+          "min": 0.5333333333333333,
+          "max": 0.5966666666666667
+        },
+        "setup_embedding_tokens": {
+          "mean": 42366.0,
+          "std": 0.0,
+          "min": 42366.0,
+          "max": 42366.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "gm_deterministic": {
+        "mean_f1": {
+          "mean": 0.4166666666666667,
+          "std": 0.0,
+          "min": 0.4166666666666667,
+          "max": 0.4166666666666667
+        },
+        "setup_embedding_tokens": {
+          "mean": 42366.0,
+          "std": 0.0,
+          "min": 42366.0,
+          "max": 42366.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_progressive": {
+        "mean_f1": {
+          "mean": 0.4987301587301587,
+          "std": 0.02654877568837733,
+          "min": 0.4685714285714286,
+          "max": 0.5185714285714286
+        },
+        "setup_embedding_tokens": {
+          "mean": 144251.0,
+          "std": 0.0,
+          "min": 144251.0,
+          "max": 144251.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_baseline": {
+        "mean_f1": {
+          "mean": 0.27777777777777773,
+          "std": 0.03469443332443554,
+          "min": 0.25,
+          "max": 0.31666666666666665
+        },
+        "setup_embedding_tokens": {
+          "mean": 144251.0,
+          "std": 0.0,
+          "min": 144251.0,
+          "max": 144251.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "raw_rag_function": {
+        "mean_f1": {
+          "mean": 0.21841269841269847,
+          "std": 0.0,
+          "min": 0.21841269841269845,
+          "max": 0.21841269841269845
+        },
+        "setup_embedding_tokens": {
+          "mean": 144251.0,
+          "std": 0.0,
+          "min": 144251.0,
+          "max": 144251.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      }
+    },
+    "pairwise_delta_gm_vs_rag": {
+      "n_runs": 3,
+      "mean_delta": 0.07126984126984127,
+      "bootstrap_ci_95": [
+        0.014761904761904754,
+        0.1280952380952381
+      ]
+    }
+  },
+  "tiangolo/fastapi/same_snapshot_amortized": {
+    "source_file": "results/clean_eval_20260211_201431/repeat_sets/20260211_223957_swe_bench_tiangolo_fastapi_same_snapshot_amortized_issues_swebench_fastapi_v2_10.json",
+    "n_runs": 3,
+    "gates": {
+      "min_repeats_met": true,
+      "pairwise_bootstrap_available": true,
+      "ci_ready": true
+    },
+    "amortization": {
+      "track_name": "same_snapshot_amortized",
+      "n_issues": 10,
+      "n_unique_commits": 1,
+      "commit_repeat_ratio": 0.9,
+      "cache_hit_rate": 0.9
+    },
+    "methods": {
+      "gm_progressive": {
+        "mean_f1": {
+          "mean": 0.5299999999999999,
+          "std": 0.06009252125773317,
+          "min": 0.46333333333333326,
+          "max": 0.58
+        },
+        "setup_embedding_tokens": {
+          "mean": 9757.0,
+          "std": 0.0,
+          "min": 9757.0,
+          "max": 9757.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "gm_deterministic": {
+        "mean_f1": {
+          "mean": 0.38166666666666665,
+          "std": 0.0,
+          "min": 0.38166666666666665,
+          "max": 0.38166666666666665
+        },
+        "setup_embedding_tokens": {
+          "mean": 9757.0,
+          "std": 0.0,
+          "min": 9757.0,
+          "max": 9757.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_progressive": {
+        "mean_f1": {
+          "mean": 0.41150793650793654,
+          "std": 0.04030660083721579,
+          "min": 0.36547619047619045,
+          "max": 0.4404761904761905
+        },
+        "setup_embedding_tokens": {
+          "mean": 20537.0,
+          "std": 0.0,
+          "min": 20537.0,
+          "max": 20537.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_baseline": {
+        "mean_f1": {
+          "mean": 0.4222222222222222,
+          "std": 0.11344765475923413,
+          "min": 0.3333333333333333,
+          "max": 0.55
+        },
+        "setup_embedding_tokens": {
+          "mean": 20537.0,
+          "std": 0.0,
+          "min": 20537.0,
+          "max": 20537.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "raw_rag_function": {
+        "mean_f1": {
+          "mean": 0.22818181818181818,
+          "std": 0.0,
+          "min": 0.22818181818181818,
+          "max": 0.22818181818181818
+        },
+        "setup_embedding_tokens": {
+          "mean": 20537.0,
+          "std": 0.0,
+          "min": 20537.0,
+          "max": 20537.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      }
+    },
+    "pairwise_delta_gm_vs_rag": {
+      "n_runs": 3,
+      "mean_delta": 0.11849206349206344,
+      "bootstrap_ci_95": [
+        0.09785714285714281,
+        0.1514285714285714
+      ]
+    }
+  },
+  "yt-dlp/yt-dlp/strict_commit_fidelity": {
+    "source_file": "results/clean_eval_20260211_201431/repeat_sets/20260211_231558_swe_polybench_yt_dlp_yt_dlp_strict_commit_fidelity_issues_polybench_ytdlp_v2_5.json",
+    "n_runs": 3,
+    "gates": {
+      "min_repeats_met": true,
+      "pairwise_bootstrap_available": true,
+      "ci_ready": true
+    },
+    "amortization": {
+      "track_name": "strict_commit_fidelity",
+      "n_issues": 5,
+      "n_unique_commits": 5,
+      "commit_repeat_ratio": 0.0,
+      "cache_hit_rate": 0.0
+    },
+    "methods": {
+      "gm_progressive": {
+        "mean_f1": {
+          "mean": 0.3822222222222222,
+          "std": 0.042860670048857574,
+          "min": 0.3333333333333333,
+          "max": 0.4133333333333333
+        },
+        "setup_embedding_tokens": {
+          "mean": 271141.0,
+          "std": 0.0,
+          "min": 271141.0,
+          "max": 271141.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "gm_deterministic": {
+        "mean_f1": {
+          "mean": 0.29714285714285715,
+          "std": 0.0,
+          "min": 0.29714285714285715,
+          "max": 0.29714285714285715
+        },
+        "setup_embedding_tokens": {
+          "mean": 271141.0,
+          "std": 0.0,
+          "min": 271141.0,
+          "max": 271141.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_progressive": {
+        "mean_f1": {
+          "mean": 0.1634920634920635,
+          "std": 0.03378380421236947,
+          "min": 0.13333333333333333,
+          "max": 0.2
+        },
+        "setup_embedding_tokens": {
+          "mean": 3440119.0,
+          "std": 0.0,
+          "min": 3440119.0,
+          "max": 3440119.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_baseline": {
+        "mean_f1": {
+          "mean": 0.35555555555555557,
+          "std": 0.03849001794597508,
+          "min": 0.3333333333333333,
+          "max": 0.4
+        },
+        "setup_embedding_tokens": {
+          "mean": 3440119.0,
+          "std": 0.0,
+          "min": 3440119.0,
+          "max": 3440119.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "raw_rag_function": {
+        "mean_f1": {
+          "mean": 0.14910256410256412,
+          "std": 0.0,
+          "min": 0.14910256410256412,
+          "max": 0.14910256410256412
+        },
+        "setup_embedding_tokens": {
+          "mean": 3440119.0,
+          "std": 0.0,
+          "min": 3440119.0,
+          "max": 3440119.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      }
+    },
+    "pairwise_delta_gm_vs_rag": {
+      "n_runs": 3,
+      "mean_delta": 0.21873015873015875,
+      "bootstrap_ci_95": [
+        0.1333333333333333,
+        0.2666666666666667
+      ]
+    }
+  },
+  "keras-team/keras/strict_commit_fidelity": {
+    "source_file": "results/clean_eval_20260211_201431/repeat_sets/20260212_002530_swe_polybench_keras_team_keras_strict_commit_fidelity_issues_polybench_keras_v2_10.json",
+    "n_runs": 3,
+    "gates": {
+      "min_repeats_met": true,
+      "pairwise_bootstrap_available": true,
+      "ci_ready": true
+    },
+    "amortization": {
+      "track_name": "strict_commit_fidelity",
+      "n_issues": 10,
+      "n_unique_commits": 10,
+      "commit_repeat_ratio": 0.0,
+      "cache_hit_rate": 0.0
+    },
+    "methods": {
+      "gm_progressive": {
+        "mean_f1": {
+          "mean": 0.319047619047619,
+          "std": 0.02075666163590796,
+          "min": 0.29523809523809524,
+          "max": 0.3333333333333333
+        },
+        "setup_embedding_tokens": {
+          "mean": 1372243.0,
+          "std": 0.0,
+          "min": 1372243.0,
+          "max": 1372243.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "gm_deterministic": {
+        "mean_f1": {
+          "mean": 0.27380952380952384,
+          "std": 0.0,
+          "min": 0.27380952380952384,
+          "max": 0.27380952380952384
+        },
+        "setup_embedding_tokens": {
+          "mean": 1372243.0,
+          "std": 0.0,
+          "min": 1372243.0,
+          "max": 1372243.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_progressive": {
+        "mean_f1": {
+          "mean": 0.13968253968253966,
+          "std": 0.08235250449270325,
+          "min": 0.07857142857142857,
+          "max": 0.2333333333333333
+        },
+        "setup_embedding_tokens": {
+          "mean": 7340869.0,
+          "std": 0.0,
+          "min": 7340869.0,
+          "max": 7340869.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_baseline": {
+        "mean_f1": {
+          "mean": 0.15555555555555553,
+          "std": 0.034694433324435545,
+          "min": 0.11666666666666665,
+          "max": 0.18333333333333332
+        },
+        "setup_embedding_tokens": {
+          "mean": 7340869.0,
+          "std": 0.0,
+          "min": 7340869.0,
+          "max": 7340869.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "raw_rag_function": {
+        "mean_f1": {
+          "mean": 0.1794337035513506,
+          "std": 0.0,
+          "min": 0.17943370355135063,
+          "max": 0.17943370355135063
+        },
+        "setup_embedding_tokens": {
+          "mean": 7340869.0,
+          "std": 0.0,
+          "min": 7340869.0,
+          "max": 7340869.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      }
+    },
+    "pairwise_delta_gm_vs_rag": {
+      "n_runs": 3,
+      "mean_delta": 0.17936507936507937,
+      "bootstrap_ci_95": [
+        0.09523809523809527,
+        0.25476190476190474
+      ]
+    }
+  },
+  "yt-dlp/yt-dlp/same_snapshot_amortized": {
+    "source_file": "results/clean_eval_20260211_201431/repeat_sets/20260212_004402_swe_polybench_yt_dlp_yt_dlp_same_snapshot_amortized_issues_polybench_ytdlp_v2_5.json",
+    "n_runs": 3,
+    "gates": {
+      "min_repeats_met": true,
+      "pairwise_bootstrap_available": true,
+      "ci_ready": true
+    },
+    "amortization": {
+      "track_name": "same_snapshot_amortized",
+      "n_issues": 5,
+      "n_unique_commits": 1,
+      "commit_repeat_ratio": 0.8000000000000002,
+      "cache_hit_rate": 0.8000000000000002
+    },
+    "methods": {
+      "gm_progressive": {
+        "mean_f1": {
+          "mean": 0.39111111111111113,
+          "std": 0.03849001794597501,
+          "min": 0.3466666666666667,
+          "max": 0.4133333333333333
+        },
+        "setup_embedding_tokens": {
+          "mean": 49099.0,
+          "std": 0.0,
+          "min": 49099.0,
+          "max": 49099.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "gm_deterministic": {
+        "mean_f1": {
+          "mean": 0.28380952380952384,
+          "std": 0.0,
+          "min": 0.28380952380952384,
+          "max": 0.28380952380952384
+        },
+        "setup_embedding_tokens": {
+          "mean": 49099.0,
+          "std": 0.0,
+          "min": 49099.0,
+          "max": 49099.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_progressive": {
+        "mean_f1": {
+          "mean": 0.21666666666666667,
+          "std": 0.0927960727138337,
+          "min": 0.13333333333333333,
+          "max": 0.31666666666666665
+        },
+        "setup_embedding_tokens": {
+          "mean": 636824.0,
+          "std": 0.0,
+          "min": 636824.0,
+          "max": 636824.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "rag_baseline": {
+        "mean_f1": {
+          "mean": 0.17777777777777778,
+          "std": 0.1539600717839002,
+          "min": 0.0,
+          "max": 0.26666666666666666
+        },
+        "setup_embedding_tokens": {
+          "mean": 636824.0,
+          "std": 0.0,
+          "min": 636824.0,
+          "max": 636824.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      },
+      "raw_rag_function": {
+        "mean_f1": {
+          "mean": 0.1495411605937922,
+          "std": 0.0,
+          "min": 0.1495411605937922,
+          "max": 0.1495411605937922
+        },
+        "setup_embedding_tokens": {
+          "mean": 636824.0,
+          "std": 0.0,
+          "min": 636824.0,
+          "max": 636824.0
+        },
+        "avg_runtime_tokens_per_issue": {}
+      }
+    },
+    "pairwise_delta_gm_vs_rag": {
+      "n_runs": 3,
+      "mean_delta": 0.1744444444444444,
+      "bootstrap_ci_95": [
+        0.09666666666666662,
+        0.2799999999999999
+      ]
+    }
+  }
+}

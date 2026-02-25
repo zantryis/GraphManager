@@ -1,0 +1,154 @@
+\section{Method}
+\label{sec:method}
+
+We present a retrieval framework that operates over a structural representation of a software repository---a \emph{graph world model}---rather than over flat text embeddings alone. The framework supports multiple retrieval policies, ranging from a fully deterministic graph scorer to LLM-guided interactive search, all sharing the same underlying graph and index infrastructure. This section describes the graph construction (\S\ref{sec:graph_world_model}), the deterministic retrieval algorithm (\S\ref{sec:deterministic_retrieval}), the LLM-guided retrieval policies (\S\ref{sec:llm_guided_retrieval}), and the cost model used for comparison (\S\ref{sec:cost_model}).
+
+\subsection{Graph World Model}
+\label{sec:graph_world_model}
+
+Given a repository snapshot at a specific commit, we construct a directed, typed knowledge graph $G = (V, E)$ using static analysis of the Python source tree.
+
+\paragraph{Nodes.}
+The node set $V$ contains three entity types:
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{File nodes}: one per Python source file within the configured source prefixes.
+  \item \textbf{Class nodes}: one per class definition, storing the class name, docstring, and base classes.
+  \item \textbf{Function nodes}: one per function or method definition, storing the function name, signature, and docstring.
+\end{itemize}
+Crucially, node attributes include only structural metadata---names, signatures, and docstrings---but \emph{not} implementation bodies. This keeps the graph compact and avoids leaking solution-relevant code into the retrieval signal.
+
+\paragraph{Edges.}
+The edge set $E$ contains five typed relations:
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{DEFINES}: file $\to$ class or function defined in that file.
+  \item \texttt{CONTAINS}: class $\to$ method defined within that class.
+  \item \texttt{IMPORTS}: file $\to$ file, derived from import statements.
+  \item \texttt{CALLS}: function $\to$ function, resolved by static call analysis.
+  \item \texttt{INHERITS}: class $\to$ class, derived from base class declarations.
+\end{itemize}
+
+\paragraph{Call resolution with confidence tiers.}
+Call edges are the most challenging to resolve statically in a dynamic language like Python. We decompose call resolution into three modular components: an \texttt{ImportResolver} that builds a per-file symbol table from import statements (including aliases, relative imports, and star imports), a \texttt{TypeInferenceEngine} that propagates type hints and simple assignment-based types, and a \texttt{CallResolver} that matches call sites to target functions using the resolved symbol context.
+
+Each call edge is tagged with a confidence tier:
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{High}: target resolved via explicit import or type annotation.
+  \item \textbf{Medium}: target matched by name within the same module.
+  \item \textbf{Low}: target matched by global suffix or name-only fallback.
+\end{itemize}
+Low-confidence edges can be optionally excluded via an ablation switch, enabling controlled experiments on graph precision versus recall.
+
+\paragraph{Semantic index.}
+We build a FAISS \citep{johnson2021faiss} flat inner-product index over vector embeddings of node text (concatenation of name, signature, and docstring). Embeddings are produced by \texttt{gemini-embedding-001} \citep{gemini2024}. This index serves as the \emph{semantic entry point} into the graph: given an issue description, we retrieve the top-$K$ most similar nodes and use them as seeds for graph-based expansion.
+
+\paragraph{Parsing infrastructure.}
+AST parsing uses \texttt{tree-sitter} \citep{brunsfeld2018treesitter} for language-agnostic syntax tree construction. The graph is stored and queried using NetworkX \citep{hagberg2008networkx}.
+
+\subsection{Deterministic Graph Retrieval}
+\label{sec:deterministic_retrieval}
+
+The deterministic retriever (\texttt{gm\_deterministic}) is a zero-LLM-runtime method that produces a ranked file list from the graph without any language model calls at query time.
+
+\paragraph{Algorithm overview.}
+Given an issue description $q$:
+\begin{enumerate}[leftmargin=1.5em]
+  \item \textbf{Seed retrieval}: query the FAISS index with $q$ to obtain the top-$K_{\text{seed}}$ nodes (default $K_{\text{seed}} = 8$), each with a normalized semantic similarity score.
+  \item \textbf{Bounded graph expansion}: from each seed node, run bidirectional BFS with maximum depth $D$ (default 2) and maximum neighbors per node $N$ (default 12), traversing all edge types. Record each discovered path with its source seed, edge types, and edge confidence.
+  \item \textbf{File evidence aggregation}: map each visited node to its containing file and aggregate five evidence components per file.
+  \item \textbf{Scoring and ranking}: compute a weighted score per file and return the top-$K_{\text{output}}$ files.
+\end{enumerate}
+
+\paragraph{Scoring formula.}
+For each candidate file $f$, the score is:
+\begin{multline}
+\label{eq:deterministic_score}
+s(f) = w_{\text{sem}} \cdot S_{\text{sem}}(f) + w_{\text{graph}} \cdot S_{\text{graph}}(f) \\
+  + w_{\text{conf}} \cdot S_{\text{conf}}(f) + w_{\text{hint}} \cdot S_{\text{hint}}(f) - w_{\text{pen}} \cdot S_{\text{pen}}(f)
+\end{multline}
+where:
+\begin{itemize}[leftmargin=1.5em]
+  \item $S_{\text{sem}}(f)$: maximum seed similarity among nodes in $f$.
+  \item $S_{\text{graph}}(f)$: graph support strength, based on the count and diversity of independent paths reaching $f$.
+  \item $S_{\text{conf}}(f)$: confidence quality of supporting paths, weighting high-confidence edges at $1.0$, medium at $0.6$, and low at $0.2$.
+  \item $S_{\text{hint}}(f)$: lexical overlap between the issue text and the file or module name.
+  \item $S_{\text{pen}}(f)$: hub penalty for files reachable only through low-confidence or shallow-path evidence.
+\end{itemize}
+Default coefficients are $w_{\text{sem}} = 0.35$, $w_{\text{graph}} = 0.30$, $w_{\text{conf}} = 0.20$, $w_{\text{hint}} = 0.10$, $w_{\text{pen}} = 0.05$.
+
+\subsection{LLM-Guided Retrieval Policies}
+\label{sec:llm_guided_retrieval}
+
+In addition to the deterministic retriever, we evaluate LLM-guided retrieval via two agent families that use \texttt{gemini-2.0-flash} \citep{gemini2024} as the language model backend with function calling.
+
+\paragraph{Graph manager agent.}
+The \texttt{ManagerAgent} operates over the graph world model through three tools:
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{search\_nodes(query, top\_k)}: semantic search over the graph node index.
+  \item \texttt{get\_neighbors(node\_id)}: retrieve typed neighbors of a node in the graph.
+  \item \texttt{get\_file\_summary(file\_path)}: retrieve structural metadata for a file (defined classes, functions, imports).
+\end{itemize}
+The agent is prompted with the issue description and iteratively navigates the graph to identify relevant files, constrained by a maximum turn budget.
+
+\paragraph{RAG agent.}
+The \texttt{RAGAgent} operates over a standard dense vector index built from code chunks (either function-level or fixed-size). It uses a single tool:
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{search\_codebase(query, top\_k)}: dense retrieval over embedded code chunks.
+\end{itemize}
+
+\paragraph{Retrieval modes.}
+Each agent family supports two modes:
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{Baseline}: the agent receives the full issue text and produces a file list in a single interaction pass.
+  \item \textbf{Progressive}: the agent receives a cleaned and optionally path-redacted version of the issue text, uses compact tool payloads (identifiers and scores only), and applies evidence-weighted ranking with confirmed-file gating when confirmations exist.
+\end{itemize}
+
+\subsection{Methods Compared}
+\label{sec:methods_compared}
+
+Table~\ref{tab:methods} summarizes the seven retrieval methods evaluated.
+
+\begin{table*}[t]
+\centering
+\small
+\begin{tabular}{llccc}
+\toprule
+Method & Description & Index & LLM at query & Graph \\
+\midrule
+\texttt{gm\_deterministic} & Deterministic graph scorer & Graph + FAISS & No & Yes \\
+\texttt{gm\_progressive} & Graph manager, progressive mode & Graph + FAISS & Yes & Yes \\
+\texttt{gm\_baseline} & Graph manager, baseline mode & Graph + FAISS & Yes & Yes \\
+\texttt{rag\_progressive} & RAG agent, progressive mode & Chunk FAISS & Yes & No \\
+\texttt{rag\_baseline} & RAG agent, baseline mode & Chunk FAISS & Yes & No \\
+\texttt{raw\_rag\_function} & Top-$K$ function chunks, no LLM & Chunk FAISS & No & No \\
+\texttt{raw\_rag\_fixed} & Top-$K$ fixed chunks, no LLM & Chunk FAISS & No & No \\
+\bottomrule
+\end{tabular}
+\caption{Summary of retrieval methods. ``Graph'' indicates whether the method uses the AST-derived knowledge graph. ``LLM at query'' indicates whether language model calls are made during per-issue retrieval.}
+\label{tab:methods}
+\end{table*}
+
+\subsection{Cost Model}
+\label{sec:cost_model}
+
+We decompose the total token cost into setup and runtime components to enable fair comparison across methods with different index construction costs.
+
+For method $m$ over $N$ issues:
+\begin{equation}
+\label{eq:total_cost}
+C_m^{\text{total}} = C_m^{\text{setup}} + \sum_{i=1}^{N}\left(C_{m,i}^{\text{llm}} + C_{m,i}^{\text{qemb}}\right)
+\end{equation}
+where $C_m^{\text{setup}}$ is the one-time embedding cost for index construction (graph node embeddings or code chunk embeddings), $C_{m,i}^{\text{llm}}$ is the LLM token usage for issue $i$, and $C_{m,i}^{\text{qemb}}$ is the query embedding cost for issue $i$.
+
+The per-issue amortized cost is:
+\begin{equation}
+\label{eq:amortized_cost}
+C_m^{\text{amortized}} = \frac{C_m^{\text{total}}}{N}
+\end{equation}
+
+\paragraph{Break-even analysis.}
+Given two methods $m$ and $b$ where $m$ has lower setup cost but higher per-issue runtime cost, the break-even task count is:
+\begin{equation}
+\label{eq:breakeven}
+N_{\text{break-even}} = \frac{C_m^{\text{setup}} - C_b^{\text{setup}}}{C_b^{\text{runtime}} - C_m^{\text{runtime}}}
+\end{equation}
+where $C^{\text{runtime}} = C^{\text{llm}} + C^{\text{qemb}}$ is the mean per-issue runtime cost. When the denominator is positive, $N_{\text{break-even}}$ gives the number of tasks at which method $m$ becomes cheaper than $b$ in total cost.

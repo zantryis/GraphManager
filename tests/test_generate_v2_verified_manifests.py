@@ -14,9 +14,11 @@ class GenerateV2VerifiedManifestsTests(unittest.TestCase):
             "raw_rag_fixed",
             "bm25",
             "agentic_cold_start",
+            "repomap_like",
+            "agentless_like_localization",
         }
         self.assertEqual(set(FULL_METHODS), expected)
-        self.assertEqual(len(FULL_METHODS), 8)
+        self.assertEqual(len(FULL_METHODS), 10)
 
     def test_manifest_payload_rag_tool_flag_behavior(self):
         from tools.generate_v2_verified_manifests import _manifest_payload

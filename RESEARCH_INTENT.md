@@ -3,33 +3,32 @@
 <!-- This captures strategic intent agreed with the researcher. Do not modify
      without researcher sign-off — it is not a status doc, it is a contract. -->
 
-Last updated: 2026-02-22
+Last updated: 2026-02-25
 
 ---
 
-## V2 STATUS (2026-02-22)
+## V2 STATUS (2026-02-25)
 
 **The V1 paper is archived as a reference artifact. Do not edit it. Do not treat V1
 experiment design as the target — it had too many methodological gaps.**
 
-V2 is in the research planning phase. The full V2 plan is in `education/v2_next_session_plan.md`.
-Read that document before doing any V2 design or engineering work.
+V2 is in the execution phase. Infrastructure is complete (all methods implemented,
+manifests generated, retrieval eval wired up). The V1 pipeline, results, and paper
+remain intact as calibration artifacts.
 
-**Core thesis direction is unchanged:** graph-based world model for cost-efficient multi-hop
-structural retrieval, with cost advantage widening under amortized deployment.
+**Core thesis direction is unchanged:** graph-based world model for cost-efficient
+multi-hop structural retrieval, with cost advantage widening under amortized deployment.
 
-**What changes in V2:**
+**What changed in V2 (engineering complete):**
 - BM25 added as lexical baseline (was missing in V1 — the most critical gap)
 - `none` (empty-context patch) replaced with `agentic_cold_start` (agent with file tools, no index)
 - `rag_progressive` gets symmetric tool interface (file-read tool to match GM's 3 tools)
-- Retrieval and patching evaluations run on the **same repos** (V1 used different sets)
-- Comparison framed against published Agentless/RepoMap leaderboard numbers, with
-  BM25 and agentic_cold_start as honest internal baselines
-- Open decision: fixed-context vs. agentic-tool patch agent — resolve in professor meeting
+- Retrieval and patching evaluations run on the **same 12 repos** (V1 used different sets)
+- `repomap_like` and `agentless_like_localization` added to patching manifests (were retrieval-only in V1)
+- `agentic_cold_start` added to retrieval eval (was patching-only)
+- Full 11-method retrieval matrix aligned with 10-method + oracle patching matrix
 
 The V1 numbers, code, and results are frozen. Do not re-run V1 experiments.
-
----
 
 ---
 
@@ -44,11 +43,11 @@ once and serves it to all agents cheaply. This amortizes codebase exploration ac
 tasks and agents.
 
 The graph is also compact: embedding structural metadata (names, signatures,
-docstrings) costs ~3× fewer tokens than embedding full code bodies (RAG).
+docstrings) costs ~3x fewer tokens than embedding full code bodies (RAG).
 
 ---
 
-## Paper 1 — Scope and Claim
+## Paper 1 — V2 Scope and Claim
 
 **Title direction:** Graph-Augmented Retrieval for Cost-Efficient Issue Localization
 
@@ -56,30 +55,56 @@ docstrings) costs ~3× fewer tokens than embedding full code bodies (RAG).
 maintaining competitive retrieval quality. This is a **cost-efficiency paper**, not
 a "graph beats RAG quality" paper.
 
-**What the numbers show (already collected):**
-- GM-progressive and RAG-progressive are near-tied on macro F1 (0.684 vs 0.680).
-- GM-progressive total cost is 0.42× RAG-progressive — driven by 3.2× cheaper setup.
-- Cost gap widens further under same-snapshot amortization (graph built once, many queries).
+### Method Matrix (aligned for V2)
+
+**Retrieval evaluation (11 methods):**
+
+| Tier | Methods | LLM calls | Index type |
+|------|---------|-----------|------------|
+| Tier 0 (zero-LLM) | `gm_deterministic`, `raw_rag_function`, `raw_rag_fixed`, `bm25`, `repomap_like` | None | Graph/RAG/BM25/PageRank |
+| Tier 1 (agentic) | `gm_progressive`, `gm_baseline`, `rag_progressive`, `rag_baseline`, `agentless_like_localization`, `agentic_cold_start` | Yes | Graph/RAG/none |
+
+**Patching evaluation (10 methods + oracle):**
+`oracle`, `gm_progressive`, `gm_deterministic`, `rag_progressive`, `raw_rag_function`,
+`raw_rag_fixed`, `bm25`, `agentic_cold_start`, `repomap_like`, `agentless_like_localization`
+
+`gm_baseline` and `rag_baseline` excluded from patching (single-turn ablation variants;
+retrieval eval captures their quality difference vs progressive).
+
+### Tiered Narrative (per gap_analysis_v1)
+
+```
+Tier 0:  BM25 (lexical, 0 LLM, 0 embedding cost)
+         GM-det (structural, 0 LLM, low embedding cost)
+         raw_rag (dense, 0 LLM, high embedding cost)
+         repomap_like (graph PageRank, 0 LLM, 0 embedding cost)
+         -> Question: what does structure add over lexical matching, at what cost?
+
+Tier 1:  GM-prog (structural + LLM)
+         RAG-prog (dense + LLM, symmetric tools)
+         agentless_like (hierarchical LLM localization)
+         agentic_cold_start (LLM + filesystem tools, no index)
+         -> Question: does adding LLM budget help more for one approach?
+
+Tier 2:  Patching pilot (all 10 methods + oracle)
+         -> Question: does the retrieval advantage translate end-to-end?
+```
+
+### Evaluation Population (12 repos, same for retrieval + patching)
+
+SWE-bench Verified (500 instances across 12 repos):
+astropy, django, matplotlib, seaborn, flask, requests, xarray, pylint,
+pytest, scikit-learn, sphinx, sympy
+
+Retrieval: n=10 per repo (except seaborn n=2), strict_commit_fidelity track.
+Patching: all Verified instances per repo, single run per method.
 
 **Why retrieval alone is not sufficient (prof's feedback):**
-Retrieval-only results, while clean, don't prove the mechanism is usable end-to-end.
-Reviewers (and the advisor) will ask: "so what?" Paper 1 must include patching
-results — not necessarily full SWE-bench pass@1, but enough to show the retrieval
-feeds a real patch agent and that the system produces non-trivial resolved instances.
-
-**Paper 1 target structure:**
-1. Method: graph construction, retrieval modes, cost accounting
-2. Retrieval results: 6 methods × 3 repos (Flask, Requests, Pytest) × n=10 × 3 repeats
-   + gm_deterministic rows (currently pending)
-3. Patching pilot: 3 methods (cold-start, rag_progressive, gm_progressive) ×
-   ~30 instances (10/repo across 3 repos), labeled explicitly as a pilot
-4. Key comparison table: cost-per-resolved-issue by method — this is the paper's
-   money table, combining retrieval cost + patch cost into a single efficiency number
+Retrieval-only results don't prove end-to-end viability. Paper 1 must include
+patching results to show the retrieval feeds a real patch agent.
 
 **What Paper 1 does NOT need:**
 - Full MAS orchestration (Paper 2)
-- SWE-bench pass@1 at scale (too expensive; pilot is sufficient)
-- gm_deterministic patching runs (retrieval comparison only)
 - Cross-language results (Python-only is fine with explicit scope limitation)
 
 ---
@@ -87,14 +112,7 @@ feeds a real patch agent and that the system produces non-trivial resolved insta
 ## Paper 2 — Intent (do not build yet)
 
 **Central claim:** A shared GraphManager world model enables efficient multi-agent
-issue resolution — multiple specialized worker agents (retrieval, patch, test, review)
-share one graph index, preventing cold-start duplication across the pipeline.
-
-**What Paper 2 adds over Paper 1:**
-- MAS orchestration layer: manager dispatches worker agents
-- Worker agents: patch agent, test-feedback agent, review agent
-- Shared graph serves all workers → amortization across agent types, not just tasks
-- Full SWE-bench Verified evaluation at scale
+issue resolution — multiple specialized worker agents share one graph index.
 
 **Status:** Do not implement. Paper 1 must be submitted first.
 
@@ -103,26 +121,19 @@ share one graph index, preventing cold-start duplication across the pipeline.
 ## Experiment Design Principles
 
 **Oracle run is mandatory before publishing patching numbers.**
-Run gold files directly into the patch agent (bypassing retrieval) to establish
-the model ceiling. If oracle gets N resolved, then GM-progressive getting M < N
-means the gap is retrieval quality. If oracle also gets M ≈ N, the bottleneck is
-the patch model, not retrieval. Without oracle, patching numbers are uninterpretable.
+Run gold files directly into the patch agent to establish the model ceiling.
 
-**Cold-start must be a real model call.**
-cold-start = issue text only → patch agent, zero retrieval context. It must make
-a genuine LLM call (not silently return no_patch). This is the baseline that
-shows retrieval adds value. If cold-start resolves 3/30 and GM-progressive
-resolves 8/30, that delta is the retrieval contribution.
+**Cold-start must be a real agent call.**
+`agentic_cold_start` uses filesystem tools (ls/search_paths/get_file_contents)
+with no pre-built index. This is the baseline that shows retrieval adds value.
 
 **Ablation before committing to fixed parameter values.**
-Any new limit (max_turns, max_output_tokens, max_file_chars) should be tested on
-a small instance set before applying to a full 30-instance run. Lock values only
-after confirming they don't cause truncation or cost blowups.
+Any new limit should be tested on a small instance set before applying to a full run.
 
 **Repeat sets for statistical validity.**
-- Retrieval: 3 repeats per cell minimum; report bootstrap 95% CIs on paired deltas.
-- Patching pilot: single run per method is acceptable for the pilot, but label it
-  as a pilot (no CIs). State N explicitly. Aim for N≥10/repo.
+- Retrieval: 3 repeats per cell minimum on anchor repos; 1 repeat on expansion repos.
+  Report bootstrap 95% CIs on paired deltas.
+- Patching: single run per method. Label as pilot (no CIs). State N explicitly.
 
 ---
 
@@ -133,8 +144,8 @@ A reviewer should be able to read the paper and conclude:
 2. Retrieval quality is competitive — not universally better, but not worse on average.
 3. The system resolves real issues end-to-end, at lower total cost per resolution than RAG.
 4. The amortization story holds: cost gap widens as more issues share one snapshot.
+5. BM25 and prior-work baselines (RepoMap, Agentless) are honestly compared.
 
 If the patching pilot shows even directional evidence for (3), the paper is submittable.
-If patching results are negative (GM resolves fewer than RAG), the cost story in (1)/(4)
-must be strong enough to carry the paper — and the negative result should be analyzed
-honestly (retrieval miss rate? patch model bottleneck?).
+If patching results are negative, the cost story in (1)/(4) must be strong enough to
+carry the paper — and the negative result should be analyzed honestly.

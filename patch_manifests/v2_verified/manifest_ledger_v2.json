@@ -12,7 +12,9 @@
     "raw_rag_function",
     "raw_rag_fixed",
     "bm25",
-    "agentic_cold_start"
+    "agentic_cold_start",
+    "repomap_like",
+    "agentless_like_localization"
   ],
   "pilot_repo": "psf/requests",
   "pilot_n_instances": 8,
@@ -28,6 +30,14 @@
       "method": "agentic_cold_start",
       "manifest_path": "patch_manifests/v2_verified/astropy_astropy_agentic_cold_start_v1.yaml",
       "manifest_sha256": "17d05bbfe0fa9dbf337dc2368eb02e7933d7a05b26b28918b03fd6e48a33bc3b",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "astropy/astropy",
+      "method": "agentless_like_localization",
+      "manifest_path": "patch_manifests/v2_verified/astropy_astropy_agentless_like_localization_v1.yaml",
+      "manifest_sha256": "c4dac9b7f957d48fe9698699023153a1c050f0581edfc68b045d1d1c5c57137d",
       "n_instances": 22
     },
     {
@@ -88,10 +98,26 @@
     },
     {
       "type": "full",
+      "repo": "astropy/astropy",
+      "method": "repomap_like",
+      "manifest_path": "patch_manifests/v2_verified/astropy_astropy_repomap_like_v1.yaml",
+      "manifest_sha256": "6c114b611d64c3fad34ecaefc59b3d6545467507b9a3b9393434c0f038354eab",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
       "repo": "django/django",
       "method": "agentic_cold_start",
       "manifest_path": "patch_manifests/v2_verified/django_django_agentic_cold_start_v1.yaml",
       "manifest_sha256": "874986a8b634e54c98e8972722ee74a2ad52b4e7e76f654ebbca2663857391e0",
+      "n_instances": 231
+    },
+    {
+      "type": "full",
+      "repo": "django/django",
+      "method": "agentless_like_localization",
+      "manifest_path": "patch_manifests/v2_verified/django_django_agentless_like_localization_v1.yaml",
+      "manifest_sha256": "80cc72ad0082b212698af38d8a0729780757349e117b521d3b0d63d7cecc3e8a",
       "n_instances": 231
     },
     {
@@ -152,10 +178,26 @@
     },
     {
       "type": "full",
+      "repo": "django/django",
+      "method": "repomap_like",
+      "manifest_path": "patch_manifests/v2_verified/django_django_repomap_like_v1.yaml",
+      "manifest_sha256": "11b082fdd1f0e5fadd8afbcae5d9103ccde658305ce0a5e4b277448fede79c87",
+      "n_instances": 231
+    },
+    {
+      "type": "full",
       "repo": "matplotlib/matplotlib",
       "method": "agentic_cold_start",
       "manifest_path": "patch_manifests/v2_verified/matplotlib_matplotlib_agentic_cold_start_v1.yaml",
       "manifest_sha256": "a110495d22cb216b8f4a4b9ec34bb4286809dfa3d986bc366220eade9de8243d",
+      "n_instances": 34
+    },
+    {
+      "type": "full",
+      "repo": "matplotlib/matplotlib",
+      "method": "agentless_like_localization",
+      "manifest_path": "patch_manifests/v2_verified/matplotlib_matplotlib_agentless_like_localization_v1.yaml",
+      "manifest_sha256": "2b3c4071b7ca08a8729febde1be04605cafb57f84e7fc954f8f9319b5cda617f",
       "n_instances": 34
     },
     {
@@ -216,10 +258,26 @@
     },
     {
       "type": "full",
+      "repo": "matplotlib/matplotlib",
+      "method": "repomap_like",
+      "manifest_path": "patch_manifests/v2_verified/matplotlib_matplotlib_repomap_like_v1.yaml",
+      "manifest_sha256": "8d3acbe53a7961b1e3bbdeeaad3f3874f64d670eb82aca041a51abc869e6c943",
+      "n_instances": 34
+    },
+    {
+      "type": "full",
       "repo": "mwaskom/seaborn",
       "method": "agentic_cold_start",
       "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_agentic_cold_start_v1.yaml",
-      "manifest_sha256": "3b22d874e0c87f48f78572f1421106a6a1b6d203bd2fcf506404d4e8cc83ec0d",
+      "manifest_sha256": "c5bf305450372dca84002fd59e6a199c41ef06d19606dd2ef7c9a3cce86fc4ff",
+      "n_instances": 2
+    },
+    {
+      "type": "full",
+      "repo": "mwaskom/seaborn",
+      "method": "agentless_like_localization",
+      "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_agentless_like_localization_v1.yaml",
+      "manifest_sha256": "cb3df93969dbc5ad732ea71517dcdce60f2d30c70b5d1268397aa82cfaccc757",
       "n_instances": 2
     },
     {
@@ -227,7 +285,7 @@
       "repo": "mwaskom/seaborn",
       "method": "bm25",
       "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_bm25_v1.yaml",
-      "manifest_sha256": "0cfea84e0205233dad411df9949a8e2c3d18807cec9c8473a0040404787094e0",
+      "manifest_sha256": "72a4dd994f4e3ad4b10224de16e665efaf41aeb84c22993b877205b59b7cb703",
       "n_instances": 2
     },
     {
@@ -235,7 +293,7 @@
       "repo": "mwaskom/seaborn",
       "method": "gm_deterministic",
       "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_gm_deterministic_v1.yaml",
-      "manifest_sha256": "8c6f4243c0b038792441ad1619dd3c9f28096dbb009e1adb5d289860351a9bb1",
+      "manifest_sha256": "d6f5b855cadd1cf5d663a89489692862b8fd8ca1ba99ddd32ec4755327874201",
       "n_instances": 2
     },
     {
@@ -243,7 +301,7 @@
       "repo": "mwaskom/seaborn",
       "method": "gm_progressive",
       "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_gm_progressive_v1.yaml",
-      "manifest_sha256": "1ca5a9034668c110d0910fe802264d2092f8e15db804e4eb86f1bed0232c4c74",
+      "manifest_sha256": "891cf7296b5567137607a674ae20348139d714d931e1ccf85aa826d1fcad00ca",
       "n_instances": 2
     },
     {
@@ -251,7 +309,7 @@
       "repo": "mwaskom/seaborn",
       "method": "oracle",
       "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_oracle_v1.yaml",
-      "manifest_sha256": "cf6ed58fb3daf8ec823d00fb222245425f25c62d8b08ad0e4eeedadcb60a5119",
+      "manifest_sha256": "928ba3e7d5bc7dd93ae2d102b5d2e7dc0f2e4fd05644ce16e0470f141ee7c9d7",
       "n_instances": 2
     },
     {
@@ -259,7 +317,7 @@
       "repo": "mwaskom/seaborn",
       "method": "rag_progressive",
       "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_rag_progressive_v1.yaml",
-      "manifest_sha256": "9cf7f628ddc7a2661f326075670616b18fdbd2992bfb5005ab1559471a42686c",
+      "manifest_sha256": "5d213161913d3e04ce4d2b2ec64bd570155ba2f867a35ea0a0c6f5cdb46838bc",
       "n_instances": 2
     },
     {
@@ -267,7 +325,7 @@
       "repo": "mwaskom/seaborn",
       "method": "raw_rag_fixed",
       "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_raw_rag_fixed_v1.yaml",
-      "manifest_sha256": "f29c0e438c93babb928dddc6e8d9fbd2fa8ee24419a4e6a6fa01f9280cd81a18",
+      "manifest_sha256": "cf78c6523a333093ae82bff946d00eb9c65d6f794138350bbe232fd401ea8d35",
       "n_instances": 2
     },
     {
@@ -275,7 +333,15 @@
       "repo": "mwaskom/seaborn",
       "method": "raw_rag_function",
       "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_raw_rag_function_v1.yaml",
-      "manifest_sha256": "ad921c929f2db83995bbe63b5e5f46ce15d37b9015a2414e7a305e49f21633d1",
+      "manifest_sha256": "4e59f5781379f2e0a64027daad218573d9e9eb361a9b6725b7ba99691aad037a",
+      "n_instances": 2
+    },
+    {
+      "type": "full",
+      "repo": "mwaskom/seaborn",
+      "method": "repomap_like",
+      "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_repomap_like_v1.yaml",
+      "manifest_sha256": "09f6b9acde353226d1c0b56100b0dba704c406c38623e2538dafe9df8f77532f",
       "n_instances": 2
     },
     {
@@ -284,6 +350,14 @@
       "method": "agentic_cold_start",
       "manifest_path": "patch_manifests/v2_verified/pallets_flask_agentic_cold_start_v1.yaml",
       "manifest_sha256": "4cd956fae7abf4ab010381dad258900eaaf4a7ed989c985a4d3d6a35beed1dbc",
+      "n_instances": 1
+    },
+    {
+      "type": "full",
+      "repo": "pallets/flask",
+      "method": "agentless_like_localization",
+      "manifest_path": "patch_manifests/v2_verified/pallets_flask_agentless_like_localization_v1.yaml",
+      "manifest_sha256": "d11e61ff77871244b046e5de9ccb90e0fd13d0fe449de4834acdab7a29084dad",
       "n_instances": 1
     },
     {
@@ -344,10 +418,26 @@
     },
     {
       "type": "full",
+      "repo": "pallets/flask",
+      "method": "repomap_like",
+      "manifest_path": "patch_manifests/v2_verified/pallets_flask_repomap_like_v1.yaml",
+      "manifest_sha256": "29058583e705e098ca2f26fc0f69f666cbfc11593c68ffe0b875c1985546f7ec",
+      "n_instances": 1
+    },
+    {
+      "type": "full",
       "repo": "psf/requests",
       "method": "agentic_cold_start",
       "manifest_path": "patch_manifests/v2_verified/psf_requests_agentic_cold_start_v1.yaml",
       "manifest_sha256": "0689b6a639d0d802d19384722fea220066d2c55fd48a2c419aee3e9c585b2f17",
+      "n_instances": 8
+    },
+    {
+      "type": "full",
+      "repo": "psf/requests",
+      "method": "agentless_like_localization",
+      "manifest_path": "patch_manifests/v2_verified/psf_requests_agentless_like_localization_v1.yaml",
+      "manifest_sha256": "5b45472a619765e0f48e45046af4694188fff243b41c417b570a59bf59855079",
       "n_instances": 8
     },
     {
@@ -408,10 +498,26 @@
     },
     {
       "type": "full",
+      "repo": "psf/requests",
+      "method": "repomap_like",
+      "manifest_path": "patch_manifests/v2_verified/psf_requests_repomap_like_v1.yaml",
+      "manifest_sha256": "17c82d981dc0c0b23c5588b51958d95d88f41a7e5bd41018dbc8e6b2fd7d6c25",
+      "n_instances": 8
+    },
+    {
+      "type": "full",
       "repo": "pydata/xarray",
       "method": "agentic_cold_start",
       "manifest_path": "patch_manifests/v2_verified/pydata_xarray_agentic_cold_start_v1.yaml",
       "manifest_sha256": "0d776bd1b196ccc52202f41a238d66f84f75f626f6d85adecf4022da80357467",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "pydata/xarray",
+      "method": "agentless_like_localization",
+      "manifest_path": "patch_manifests/v2_verified/pydata_xarray_agentless_like_localization_v1.yaml",
+      "manifest_sha256": "d6e1427f8dc85a6dc9dfd1a1f98249ea12420f7a22139326c220892a180ef40a",
       "n_instances": 22
     },
     {
@@ -472,10 +578,26 @@
     },
     {
       "type": "full",
+      "repo": "pydata/xarray",
+      "method": "repomap_like",
+      "manifest_path": "patch_manifests/v2_verified/pydata_xarray_repomap_like_v1.yaml",
+      "manifest_sha256": "59b02ec2b64822b6042ce77518881c742e49c2060b4d1bb79b8b0895ad356006",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
       "repo": "pylint-dev/pylint",
       "method": "agentic_cold_start",
       "manifest_path": "patch_manifests/v2_verified/pylint_dev_pylint_agentic_cold_start_v1.yaml",
       "manifest_sha256": "8043fa04492c1e26a5cf6f8ddd674b8b7162a2e60d6a884fb9b6d7b505f3bb9a",
+      "n_instances": 10
+    },
+    {
+      "type": "full",
+      "repo": "pylint-dev/pylint",
+      "method": "agentless_like_localization",
+      "manifest_path": "patch_manifests/v2_verified/pylint_dev_pylint_agentless_like_localization_v1.yaml",
+      "manifest_sha256": "599be5369b9dd27f3d305c1c60de1824768b701d1dcd6c340bc03fa176a66a04",
       "n_instances": 10
     },
     {
@@ -536,10 +658,26 @@
     },
     {
       "type": "full",
+      "repo": "pylint-dev/pylint",
+      "method": "repomap_like",
+      "manifest_path": "patch_manifests/v2_verified/pylint_dev_pylint_repomap_like_v1.yaml",
+      "manifest_sha256": "950f0f268bf59edb0e85735196a2394c4625beb1293d4fdb5067607846aa007c",
+      "n_instances": 10
+    },
+    {
+      "type": "full",
       "repo": "pytest-dev/pytest",
       "method": "agentic_cold_start",
       "manifest_path": "patch_manifests/v2_verified/pytest_dev_pytest_agentic_cold_start_v1.yaml",
       "manifest_sha256": "0f8533a9936272d88ed360c5ddbae95300d675e4e10f9d59e8837aa324c618c8",
+      "n_instances": 19
+    },
+    {
+      "type": "full",
+      "repo": "pytest-dev/pytest",
+      "method": "agentless_like_localization",
+      "manifest_path": "patch_manifests/v2_verified/pytest_dev_pytest_agentless_like_localization_v1.yaml",
+      "manifest_sha256": "a478d8b300b119f1698507c87d2c1dc379d008e772f31c4b1443dafc19344e30",
       "n_instances": 19
     },
     {
@@ -600,10 +738,26 @@
     },
     {
       "type": "full",
+      "repo": "pytest-dev/pytest",
+      "method": "repomap_like",
+      "manifest_path": "patch_manifests/v2_verified/pytest_dev_pytest_repomap_like_v1.yaml",
+      "manifest_sha256": "f1785b483a813220c79cd853db9c6f6f9ec54417b4e7302866b7d0a47913e920",
+      "n_instances": 19
+    },
+    {
+      "type": "full",
       "repo": "scikit-learn/scikit-learn",
       "method": "agentic_cold_start",
       "manifest_path": "patch_manifests/v2_verified/scikit_learn_scikit_learn_agentic_cold_start_v1.yaml",
       "manifest_sha256": "accc41f8e55f95940e7e3d6a912f15ea35fc56c195ae0d7d2f794f5251b8dad2",
+      "n_instances": 32
+    },
+    {
+      "type": "full",
+      "repo": "scikit-learn/scikit-learn",
+      "method": "agentless_like_localization",
+      "manifest_path": "patch_manifests/v2_verified/scikit_learn_scikit_learn_agentless_like_localization_v1.yaml",
+      "manifest_sha256": "b583ebcbfb7c2a050de4bc5f860796f2f7996acf85256e5ec14247c007dfc775",
       "n_instances": 32
     },
     {
@@ -664,10 +818,26 @@
     },
     {
       "type": "full",
+      "repo": "scikit-learn/scikit-learn",
+      "method": "repomap_like",
+      "manifest_path": "patch_manifests/v2_verified/scikit_learn_scikit_learn_repomap_like_v1.yaml",
+      "manifest_sha256": "5fa8d6268fffba493a38240b2436e32260b4ac59e95b8fa3f22288cadfe08257",
+      "n_instances": 32
+    },
+    {
+      "type": "full",
       "repo": "sphinx-doc/sphinx",
       "method": "agentic_cold_start",
       "manifest_path": "patch_manifests/v2_verified/sphinx_doc_sphinx_agentic_cold_start_v1.yaml",
       "manifest_sha256": "070bf41bce664f522b48058034111b15c05b544f37515bffbc7d43c2566a812b",
+      "n_instances": 44
+    },
+    {
+      "type": "full",
+      "repo": "sphinx-doc/sphinx",
+      "method": "agentless_like_localization",
+      "manifest_path": "patch_manifests/v2_verified/sphinx_doc_sphinx_agentless_like_localization_v1.yaml",
+      "manifest_sha256": "977e02e99aecfb71cd77da08b53a9b55076e1ae3f023adb4202fe5630abf9f64",
       "n_instances": 44
     },
     {
@@ -728,10 +898,26 @@
     },
     {
       "type": "full",
+      "repo": "sphinx-doc/sphinx",
+      "method": "repomap_like",
+      "manifest_path": "patch_manifests/v2_verified/sphinx_doc_sphinx_repomap_like_v1.yaml",
+      "manifest_sha256": "04afb9b941e3cc1aaf9fee348cd47c3303ff2f50f935a0c377476b91ed8bb2ce",
+      "n_instances": 44
+    },
+    {
+      "type": "full",
       "repo": "sympy/sympy",
       "method": "agentic_cold_start",
       "manifest_path": "patch_manifests/v2_verified/sympy_sympy_agentic_cold_start_v1.yaml",
       "manifest_sha256": "f94d61077287d54727494a33cd22654e60a00d0b82fdb9bb163972f98b78eb61",
+      "n_instances": 75
+    },
+    {
+      "type": "full",
+      "repo": "sympy/sympy",
+      "method": "agentless_like_localization",
+      "manifest_path": "patch_manifests/v2_verified/sympy_sympy_agentless_like_localization_v1.yaml",
+      "manifest_sha256": "9c77aa33badc518836002f9b8af49c7d5b95256e9a5af85a5bd62c81e627f13d",
       "n_instances": 75
     },
     {
@@ -788,6 +974,14 @@
       "method": "raw_rag_function",
       "manifest_path": "patch_manifests/v2_verified/sympy_sympy_raw_rag_function_v1.yaml",
       "manifest_sha256": "a01969d1999669116f345e52216518da9b8b46428366a550c93ce7b2ec212619",
+      "n_instances": 75
+    },
+    {
+      "type": "full",
+      "repo": "sympy/sympy",
+      "method": "repomap_like",
+      "manifest_path": "patch_manifests/v2_verified/sympy_sympy_repomap_like_v1.yaml",
+      "manifest_sha256": "ec4dc8b81affc8ed2ea9d51785181a28c9b2164d826691825e4a4ffbd3d10499",
       "n_instances": 75
     },
     {

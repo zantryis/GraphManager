@@ -1,3 +1,4 @@
+import json
 import unittest
 import tempfile
 from pathlib import Path
@@ -156,6 +157,68 @@ deterministic_retrieval:
         self.assertAlmostEqual(resolved["deterministic_score_ratio_cutoff"], 0.62)
         self.assertAlmostEqual(resolved["deterministic_hub_penalty_scale"], 0.4)
         self.assertAlmostEqual(resolved["deterministic_w_sem"], 0.4)
+
+    def test_resolve_experiment_includes_methods_from_defaults(self):
+        defaults = {"methods": ["gm_progressive", "rag_progressive", "bm25"]}
+        exp = {"repo": "org/repo"}
+        resolved = resolve_experiment(exp, defaults)
+        self.assertEqual(resolved["methods"], ["gm_progressive", "rag_progressive", "bm25"])
+
+    def test_resolve_experiment_methods_default_to_none(self):
+        defaults = {}
+        exp = {"repo": "org/repo"}
+        resolved = resolve_experiment(exp, defaults)
+        self.assertIsNone(resolved["methods"])
+
+    def test_resolve_experiment_methods_experiment_override(self):
+        defaults = {"methods": ["gm_progressive"]}
+        exp = {"repo": "org/repo", "methods": ["bm25"]}
+        resolved = resolve_experiment(exp, defaults)
+        self.assertEqual(resolved["methods"], ["bm25"])
+
+
+    def test_find_completed_methods_detects_existing_results(self):
+        from run_suite import _find_completed_methods
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runs_dir = Path(tmpdir) / "runs" / "20260218_220114"
+            runs_dir.mkdir(parents=True, exist_ok=True)
+            summary = {
+                "gm_deterministic": {"mean_f1": 0.679, "n_success": 10},
+                "_meta": {
+                    "repo_name": "pallets/flask",
+                    "enabled_methods": ["gm_deterministic"],
+                },
+            }
+            (runs_dir / "summary.json").write_text(
+                json.dumps(summary), encoding="utf-8"
+            )
+
+            completed = _find_completed_methods("pallets/flask", tmpdir)
+            self.assertIn("gm_deterministic", completed)
+            # bm25 was not run → not in completed
+            self.assertNotIn("bm25", completed)
+
+    def test_find_completed_methods_ignores_other_repos(self):
+        from run_suite import _find_completed_methods
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runs_dir = Path(tmpdir) / "runs" / "20260218_220200"
+            runs_dir.mkdir(parents=True, exist_ok=True)
+            summary = {
+                "bm25": {"mean_f1": 0.512, "n_success": 10},
+                "_meta": {
+                    "repo_name": "psf/requests",
+                    "enabled_methods": ["bm25"],
+                },
+            }
+            (runs_dir / "summary.json").write_text(
+                json.dumps(summary), encoding="utf-8"
+            )
+
+            # Ask for flask — should be empty even though requests/bm25 is done
+            completed = _find_completed_methods("pallets/flask", tmpdir)
+            self.assertEqual(len(completed), 0)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # Claims Lock (Phase 4)
 
-Status: Active for Paper 1 drafting. Last updated: 2026-02-21.
+Status: Active for Paper 1 drafting. Last updated: 2026-02-25.
 
 This file constrains claim strength and phrasing for the current evidence state.
 It does not replace `RESEARCH_INTENT.md`; it operationalizes wording discipline

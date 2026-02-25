@@ -1,0 +1,23 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{When graph methods win.}
+Graph-guided retrieval shows its strongest advantage on repositories with well-defined structural dependencies---particularly Flask, where import chains and class hierarchies directly connect issue-relevant files. The graph's typed edges enable multi-hop navigation that reaches structurally related files even when their text content has low embedding similarity to the issue description. The setup cost advantage is also most pronounced in these cases: the graph index embeds only structural metadata (names, signatures, docstrings), requiring roughly one-third the embedding tokens of a full code chunk index.
+
+\paragraph{When RAG methods win.}
+On Requests and Pytest, RAG methods outperform graph methods on retrieval quality. Both repositories contain issues whose resolution involves files that are semantically related to the issue text but not strongly connected via import or call edges in the graph. This suggests that graph navigation is less effective when the structural signal is weak or when the issue description uses natural language that maps better to code semantics than to structural topology. The progressive RAG agent's ability to iteratively refine its search also helps in cases where the initial retrieval set misses relevant files.
+
+\paragraph{Cost-quality frontier.}
+The most striking finding is the separation between retrieval quality and total cost (Figure~\ref{fig:f1_cost}). GM-progressive and RAG-progressive achieve similar macro F1 across the three completed SWE-bench repositories (0.684 vs.\ 0.680), but GM-progressive costs 0.42$\times$ the total tokens. This cost advantage arises almost entirely from lower setup cost (0.31$\times$), partially offset by higher runtime LLM usage (2.4$\times$). As the number of tasks per snapshot increases, the amortized cost gap widens further in favor of graph methods.
+
+\paragraph{Deterministic vs.\ LLM-guided retrieval.}
+The deterministic graph scorer (\texttt{gm\_deterministic}) provides a zero-LLM-runtime baseline that is fully reproducible and auditable. Observed F1 (0.679, 0.520, 0.473 on Flask, Requests, Pytest) is competitive with progressive LLM-guided methods on structurally regular repositories at 0.71$\times$ the total cost of GM-progressive, confirming that much of the retrieval signal is encoded structurally. LLM-guided agents retain an advantage when issues require adaptive multi-hop exploration that the fixed BFS cannot anticipate.
+
+\paragraph{Amortization structure.}
+The dual-track evaluation reveals that amortization opportunity is highly dependent on experimental design (Figure~\ref{fig:amortization}). Under strict commit fidelity, most SWE-bench issue sets have \texttt{commit\_repeat\_ratio} near zero for small $n$, eliminating any index reuse. Under same-snapshot settings, the graph setup cost drops by an order of magnitude ($\sim$12$\times$ for \texttt{psf/requests}). This structural observation is important for practical deployment: graph-based retrieval is most cost-effective in scenarios where a repository snapshot serves multiple queries, such as issue triage, code review, or batch analysis.
+
+\paragraph{Patching pilot findings.}
+The N=100 patching pilot (Tables~\ref{tab:patching_resolved}--\ref{tab:patching_cpr}, Figure~\ref{fig:resolved_rates}) shows that GM-progressive resolves 43\% of instances versus 38\% for RAG-progressive and 3\% for cold-start---directional evidence that retrieval context provides substantial lift and that graph-guided context is competitive with RAG in end-to-end resolution. These results are exploratory (single run, no CIs; McNemar $p=0.38$). Three repositories (sympy, sphinx-doc, matplotlib) required targeted reruns to correct timeout confounding; those reruns are complete and reflected in all reported numbers. The method-accounted cost-per-resolved-issue gap ($479$K vs.\ $2.1$M tokens, $\approx4.4\times$; Figure~\ref{fig:cpr}) mirrors the retrieval setup cost advantage, suggesting the cost story holds end-to-end.
+
+\paragraph{Limitations of current evidence.}
+The results presented here are based on a limited number of repositories and issues. Key limitations include: (1) small sample sizes ($n=10$ per repo for retrieval, single run for patching) that limit statistical power; (2) evaluation on a single LLM backend (\texttt{gemini-3-flash-preview}), leaving open the question of whether results transfer to other models; (3) the patching pilot uses a 480s wall-clock cap that creates timeout-induced right-censoring, particularly for RAG-progressive on complex repositories; and (4) Python-only graph construction, which constrains generalization to multi-language repositories.

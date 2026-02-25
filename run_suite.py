@@ -17,6 +17,34 @@ import time
 from collections import defaultdict, deque
 from pathlib import Path
 
+
+def _find_completed_methods(repo_name: str, results_dir: str) -> set[str]:
+    """Scan results/runs/*/summary.json for completed (repo, method) pairs.
+
+    A method is considered completed if the summary has n_success > 0 for that method.
+    """
+    completed: set[str] = set()
+    runs_dir = Path(results_dir) / "runs"
+    if not runs_dir.exists():
+        return completed
+    for summary_path in runs_dir.glob("*/summary.json"):
+        try:
+            data = json.loads(summary_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        meta = data.get("_meta", {})
+        if not isinstance(meta, dict):
+            continue
+        if meta.get("repo_name") != repo_name:
+            continue
+        for method in meta.get("enabled_methods", []):
+            method_data = data.get(method)
+            if isinstance(method_data, dict) and int(method_data.get("n_success", 0)) > 0:
+                completed.add(str(method))
+    return completed
+
 import yaml
 from dotenv import load_dotenv
 import os
@@ -114,6 +142,7 @@ def resolve_experiment(exp: dict, defaults: dict) -> dict:
             "deterministic_config_path",
             defaults.get("deterministic_config_path"),
         ),
+        "methods": exp.get("methods", defaults.get("methods")),
     }
     if resolved.get("deterministic_config_path"):
         overrides = load_deterministic_config(resolved["deterministic_config_path"])
@@ -170,6 +199,7 @@ def run_single(
         deterministic_w_conf=exp.get("deterministic_w_conf", 0.20),
         deterministic_w_hint=exp.get("deterministic_w_hint", 0.10),
         deterministic_w_pen=exp.get("deterministic_w_pen", 0.05),
+        methods=tuple(exp["methods"]) if exp.get("methods") else None,
     )
     return summary
 
@@ -272,9 +302,25 @@ def main():
     parser.add_argument(
         "--max-parallel",
         type=int,
-        default=1,
-        help="Max repos to run concurrently (default: 1 = sequential). "
+        default=4,
+        help="Max repos to run concurrently (default: 4). "
+        "Safe maximum: 8 for zero-LLM methods, 6 for embed-only, 4 for agentic. "
         "Experiments on the same repo always run sequentially to avoid git contention.",
+    )
+    parser.add_argument(
+        "--methods",
+        type=str,
+        default=None,
+        help="Comma-separated list of methods to run (overrides YAML config). "
+        "Example: gm_progressive,rag_progressive,bm25",
+    )
+    parser.add_argument(
+        "--skip-completed",
+        action="store_true",
+        default=False,
+        help="Skip (repo, method) pairs that already have results in results/runs/. "
+        "If all methods for a repo are done, skip the whole experiment. "
+        "If some are done, run only the remaining methods.",
     )
     args = parser.parse_args()
 
@@ -285,6 +331,9 @@ def main():
 
     config = load_config(args.config)
     defaults = config.get("defaults", {})
+    # CLI --methods overrides YAML defaults
+    if args.methods:
+        defaults["methods"] = [m.strip() for m in args.methods.split(",")]
     experiments = [resolve_experiment(e, defaults) for e in config.get("experiments", [])]
 
     # Filter to specific indices if requested
@@ -293,6 +342,25 @@ def main():
         experiments_to_run = [(i, experiments[i]) for i in indices if i < len(experiments)]
     else:
         experiments_to_run = list(enumerate(experiments))
+
+    # Skip already-completed (repo, method) pairs if requested
+    if args.skip_completed:
+        filtered_exps: list[tuple[int, dict]] = []
+        for i, exp in experiments_to_run:
+            exp_methods = list(exp.get("methods") or [])
+            if not exp_methods:
+                filtered_exps.append((i, exp))
+                continue
+            done = _find_completed_methods(exp["repo"], args.results_dir)
+            remaining = [m for m in exp_methods if m not in done]
+            if not remaining:
+                print(f"  SKIP [{i}] {exp['repo']}: all {len(exp_methods)} methods already done")
+                continue
+            if len(remaining) < len(exp_methods):
+                skipped = sorted(set(exp_methods) - set(remaining))
+                print(f"  PARTIAL SKIP [{i}] {exp['repo']}: skipping {skipped}, running {remaining}")
+            filtered_exps.append((i, {**exp, "methods": remaining}))
+        experiments_to_run = filtered_exps
 
     # Print plan
     suite_name = config.get("suite", "unnamed")

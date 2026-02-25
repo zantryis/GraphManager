@@ -23,6 +23,10 @@ results/
 logs/
 graphmanager-*.json
 
+# Campaign state files (runtime-generated; YAML configs are committed)
+campaigns/*_state.json
+campaigns/v2_manifests.txt
+
 # LaTeX build artifacts (generated from source; do not commit)
 research_report/*.aux
 research_report/*.log

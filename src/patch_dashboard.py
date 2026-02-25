@@ -363,6 +363,129 @@ def summarize_dashboard_runs(runs: list[dict]) -> dict:
     }
 
 
+def build_retrieval_status(
+    results_root: Path,
+    target_repos: list[str],
+    target_methods: list[str],
+) -> dict:
+    """Build retrieval status grid for dashboard.
+
+    Returns:
+        {
+          "grid": {repo: {method: {"status": "done|pending", "f1": float|None, "run_id": str|None}}},
+          "repos": target_repos,
+          "methods": target_methods,
+          "summary": {"n_done": int, "n_total": int, "n_in_progress": int, "n_pending": int, "eta_seconds": None}
+        }
+    """
+    root = Path(results_root)
+    runs_dir = root / "runs"
+
+    # Initialize grid: all pending
+    grid: dict[str, dict[str, dict]] = {
+        repo: {
+            method: {"status": "pending", "f1": None, "run_id": None}
+            for method in target_methods
+        }
+        for repo in target_repos
+    }
+
+    target_repos_set = set(target_repos)
+    target_methods_set = set(target_methods)
+
+    if runs_dir.exists():
+        for summary_path in sorted(runs_dir.glob("*/summary.json")):
+            data = _load_json(summary_path)
+            if not data:
+                continue
+            meta = data.get("_meta", {})
+            if not isinstance(meta, dict):
+                continue
+            repo_name = str(meta.get("repo_name") or "")
+            if repo_name not in target_repos_set:
+                continue
+            enabled_methods = meta.get("enabled_methods") or []
+            run_id = str(meta.get("run_id") or summary_path.parent.name)
+
+            for method in enabled_methods:
+                if method not in target_methods_set:
+                    continue
+                method_data = data.get(method)
+                if not isinstance(method_data, dict):
+                    continue
+                if int(method_data.get("n_success", 0)) == 0:
+                    continue
+                f1 = method_data.get("mean_f1")
+                current = grid[repo_name][method]
+                # Keep latest run (run_id is YYYYMMDD_HHMMSS — lexicographic order works)
+                if current["status"] == "done" and run_id <= (current.get("run_id") or ""):
+                    continue
+                grid[repo_name][method] = {
+                    "status": "done",
+                    "f1": float(f1) if f1 is not None else None,
+                    "run_id": run_id,
+                }
+
+    # Count in-progress: run dirs with graph.json but no summary.json
+    n_in_progress = 0
+    if runs_dir.exists():
+        for run_dir in runs_dir.iterdir():
+            if not run_dir.is_dir():
+                continue
+            if (run_dir / "summary.json").exists():
+                continue
+            if (run_dir / "graph.json").exists():
+                n_in_progress += 1
+
+    n_total = len(target_repos) * len(target_methods)
+    n_done = sum(
+        1
+        for repo in target_repos
+        for method in target_methods
+        if grid[repo][method]["status"] == "done"
+    )
+
+    return {
+        "grid": grid,
+        "repos": list(target_repos),
+        "methods": list(target_methods),
+        "summary": {
+            "n_done": n_done,
+            "n_total": n_total,
+            "n_in_progress": n_in_progress,
+            "n_pending": n_total - n_done,
+            "eta_seconds": None,  # Computed by server layer from completion rate
+        },
+    }
+
+
+def load_campaign_state(campaigns_dir: Path) -> list[dict]:
+    """Load all campaign state files and return list of campaign dicts.
+
+    Returns [{"campaign_name": str, "steps": [{"name", "description", "status", ...}]}]
+    """
+    campaigns_dir = Path(campaigns_dir)
+    if not campaigns_dir.exists():
+        return []
+
+    result: list[dict] = []
+    for state_path in sorted(campaigns_dir.glob("*_state.json")):
+        data = _load_json(state_path)
+        if not data:
+            continue
+        campaign_name = str(data.get("campaign_name") or state_path.stem.replace("_state", ""))
+        steps = data.get("steps")
+        if not isinstance(steps, list):
+            steps = []
+        result.append({
+            "campaign_name": campaign_name,
+            "updated_at": str(data.get("updated_at") or ""),
+            "steps": [s for s in steps if isinstance(s, dict)],
+        })
+
+    return result
+
+
 def load_manifest_plan_summary(manifest_list_path: Path, *, root_dir: Path | None = None) -> dict:
     """Load planned manifest/instance totals from a manifest-list text file."""
     list_path = Path(manifest_list_path)

@@ -217,6 +217,15 @@ def validate_commit_context(
                 "Check source_prefixes against the actual directory layout."
             )
 
+    if "agentic_cold_start" in required:
+        cold_start_file_paths = context.get("cold_start_file_paths", set())
+        if not cold_start_file_paths:
+            raise ValueError(
+                "Cold-start has no files (no .py files found for agentic_cold_start). "
+                "source_prefixes likely matches no Python files in the repo at this commit. "
+                "Check source_prefixes against the actual directory layout."
+            )
+
 
 
 def build_issue_groups(
@@ -593,6 +602,7 @@ def run_experiment(
             & {"rag_progressive", "rag_baseline", "raw_rag_function", "agentless_like_localization"}
         )
         needs_rag_fixed = "raw_rag_fixed" in enabled_method_set
+        needs_cold_start = "agentic_cold_start" in enabled_method_set
         needs_bm25 = "bm25" in enabled_method_set
 
         if needs_graph_structure:
@@ -680,6 +690,20 @@ def run_experiment(
             bm25_file_paths = set(bm25_index._file_paths)
             print(f"    BM25: {len(bm25_file_paths)} files indexed ({bm25_build_time:.1f}s)")
 
+        cold_start_file_paths: set[str] = set()
+        cold_start_setup = {"build_time_s": 0.0, "embedding_tokens": 0}
+        if needs_cold_start:
+            for py_file in sorted(Path(repo_dir).rglob("*.py")):
+                if any(part.startswith(".") for part in py_file.parts):
+                    continue
+                rel = py_file.relative_to(repo_dir).as_posix()
+                if source_prefixes and not any(
+                    rel == p or rel.startswith(p + "/") for p in source_prefixes
+                ):
+                    continue
+                cold_start_file_paths.add(rel)
+            print(f"    Cold-start: {len(cold_start_file_paths)} files available (0 indices)")
+
         setup_costs = {
             "gm_deterministic": graph_setup,
             "gm_progressive": graph_setup,
@@ -697,6 +721,7 @@ def run_experiment(
                 "build_time_s": graph_setup["build_time_s"] + rag_func_setup["build_time_s"],
                 "embedding_tokens": int(rag_func_setup.get("embedding_tokens", 0) or 0),
             },
+            "agentic_cold_start": cold_start_setup,
         }
         for method_key, setup in setup_costs.items():
             method_setup_totals[method_key]["build_time_s"] += float(setup.get("build_time_s", 0.0))
@@ -713,6 +738,7 @@ def run_experiment(
             "rag_function_file_paths": rag_function_file_paths,
             "rag_fixed_file_paths": rag_fixed_file_paths,
             "bm25_file_paths": bm25_file_paths,
+            "cold_start_file_paths": cold_start_file_paths,
             "setup_costs": setup_costs,
         }
         validate_commit_context(context, required_methods=enabled_methods)
@@ -814,6 +840,17 @@ def run_experiment(
             agentic_methods.append(
                 ("agentless_like_localization", "Agentless-like", agentless_like, manager_max_turns)
             )
+        if "agentic_cold_start" in enabled_method_set:
+            from src.agentic_cold_start import AgenticColdStartAgent
+            cold_start_agent = AgenticColdStartAgent(
+                repo_dir=repo_dir,
+                client=client,
+                model=model_name,
+                include_prefixes=source_prefixes,
+            )
+            agentic_methods.append(
+                ("agentic_cold_start", "Cold-start (agent)", cold_start_agent, manager_max_turns)
+            )
 
         raw_methods = []
         if "raw_rag_function" in enabled_method_set:
@@ -884,11 +921,12 @@ def run_experiment(
                 setup_tokens = int(
                     context["setup_costs"].get(method_key, {}).get("embedding_tokens", 0)
                 )
-                valid_files = (
-                    context["graph_file_paths"]
-                    if (method_key.startswith("gm_") or method_key == "agentless_like_localization")
-                    else context["rag_function_file_paths"]
-                )
+                if method_key == "agentic_cold_start":
+                    valid_files = context["cold_start_file_paths"]
+                elif method_key.startswith("gm_") or method_key == "agentless_like_localization":
+                    valid_files = context["graph_file_paths"]
+                else:
+                    valid_files = context["rag_function_file_paths"]
                 try:
                     files, tokens = run_with_retries(
                         lambda: agent.find_relevant_files(
@@ -1045,6 +1083,7 @@ ALL_METHODS = [
     "bm25",
     "repomap_like",
     "agentless_like_localization",
+    "agentic_cold_start",
 ]
 
 METHOD_LABELS = {
@@ -1058,6 +1097,7 @@ METHOD_LABELS = {
     "bm25": "BM25",
     "repomap_like": "RepoMap-like",
     "agentless_like_localization": "Agentless-like",
+    "agentic_cold_start": "Cold-start (agent)",
 }
 
 

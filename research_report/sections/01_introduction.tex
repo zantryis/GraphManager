@@ -1,28 +1,3 @@
+% TODO: V2 data required
 \section{Introduction}
 \label{sec:introduction}
-
-Automated resolution of software issues---from bug reports to feature requests---has emerged as a central application of large language models (LLMs) in software engineering \citep{swebench2024, yang2024sweagent, xia2024agentless, zhang2024autocoderover}. A critical first step in any issue resolution pipeline is \emph{file localization}: identifying which files in a repository are relevant to the issue at hand. The quality of this retrieval step directly constrains downstream patch generation, as irrelevant or missing files lead to incorrect or incomplete fixes.
-
-The dominant approach to file localization is dense retrieval, typically implemented as retrieval-augmented generation (RAG) \citep{lewis2020rag}: code is chunked, embedded into a vector index, and the top-$K$ chunks most similar to the issue description are retrieved. While effective, this approach has two structural limitations. First, it is \emph{expensive to set up}: embedding an entire codebase requires substantial API calls, and the resulting index must be rebuilt whenever the repository state changes. Second, it is \emph{structurally unaware}: embedding similarity captures lexical and semantic relatedness but does not encode the dependency structure---imports, function calls, class inheritance---that developers routinely use to navigate code.
-
-We propose \emph{GraphManager}, a retrieval framework that operates over a graph world model derived from the repository's abstract syntax tree (AST). The graph encodes files, classes, and functions as nodes, with typed edges for structural relations (imports, calls, inheritance, containment). A FAISS vector index over node metadata provides semantic entry points into the graph, while graph traversal supplies structural context that flat retrieval misses.
-
-The framework supports a spectrum of retrieval policies: from a fully deterministic graph scorer that uses no LLM calls at query time, to LLM-guided interactive agents that navigate the graph through function-calling tools. This range enables direct comparison of retrieval quality against cost, and isolates the contribution of graph structure from that of LLM reasoning.
-
-A key design principle is \emph{cost awareness}. We decompose total token cost into three components---setup embedding, runtime LLM, and query embedding---and report all three for every method. This accounting reveals a structural advantage of graph-based retrieval: because the graph index is built from compact structural metadata rather than full code chunks, its setup cost is substantially lower than that of a dense code embedding index. When the same graph serves multiple retrieval tasks against a single repository snapshot, this setup cost is amortized further.
-
-To evaluate this tradeoff rigorously, we introduce a dual-track evaluation protocol:
-\begin{enumerate}[leftmargin=1.5em]
-  \item \textbf{Strict commit fidelity}: each issue is evaluated at its own \texttt{base\_commit}, requiring per-commit index rebuilds and providing a conservative cost estimate.
-  \item \textbf{Same-snapshot amortized}: all issues for a repository are evaluated against a single fixed snapshot, measuring the cost benefit of world-model reuse.
-\end{enumerate}
-
-We evaluate seven retrieval methods---including deterministic graph scoring, LLM-guided graph navigation, LLM-guided RAG, and non-LLM RAG baselines---on issues drawn from SWE-bench \citep{swebench2024} across multiple Python repositories.
-
-\paragraph{Contributions.}
-\begin{enumerate}[leftmargin=1.5em]
-  \item A graph-guided retrieval framework with seven method variants, including a deterministic multi-component scorer that requires no LLM calls at query time.
-  \item An amortization-aware dual-track evaluation protocol that separately reports strict commit-fidelity and same-snapshot reuse settings, preventing conflation of retrieval quality with cost structure.
-  \item A reproducible cost-quality analysis on SWE-bench showing that graph-based methods achieve competitive file-level F1 at lower total token cost than RAG baselines.
-  \item A patching pilot on 100 SWE-bench Verified instances across 9 repositories providing directional evidence that the retrieval cost advantage extends end-to-end to issue resolution.
-\end{enumerate}

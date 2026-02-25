@@ -1,0 +1,207 @@
+{
+  "bundle_id": "frozen-20260212-matrix-v2-clean",
+  "created_at": "2026-02-18",
+  "description": "Frozen artifact bundle from clean_eval_20260212. All cells have valid non-empty indices and ci_ready=True. Langchain excluded (invalid: empty index due to wrong source_prefix).",
+  "clean_root": "results/clean_eval_20260211_201431",
+  "n_cells": 11,
+  "cells": [
+    {
+      "repeat_set_path": "results/clean_eval_20260211_201431/repeat_sets/20260211_202654_swe_bench_pallets_flask_strict_commit_fidelity_issues_swebench_flask_v2_10.json",
+      "repo_name": "pallets/flask",
+      "dataset_name": "SWE-bench/SWE-bench",
+      "evaluation_track": "strict_commit_fidelity",
+      "issue_set_id": "issues_swebench_flask_v2_10",
+      "n_runs": 3,
+      "ci_ready": true,
+      "gm_progressive_mean_f1": 0.6544,
+      "gm_deterministic_mean_f1": 0.4867,
+      "rag_progressive_mean_f1": 0.3537,
+      "gm_prog_minus_rag_prog_delta": 0.3008,
+      "gm_prog_minus_rag_prog_ci_95": [
+        0.2114285714285714,
+        0.4147619047619047
+      ],
+      "commit_repeat_ratio": 0.0
+    },
+    {
+      "repeat_set_path": "results/clean_eval_20260211_201431/repeat_sets/20260211_203650_swe_bench_pallets_flask_same_snapshot_amortized_issues_swebench_flask_v2_10.json",
+      "repo_name": "pallets/flask",
+      "dataset_name": "SWE-bench/SWE-bench",
+      "evaluation_track": "same_snapshot_amortized",
+      "issue_set_id": "issues_swebench_flask_v2_10",
+      "n_runs": 3,
+      "ci_ready": true,
+      "gm_progressive_mean_f1": 0.74,
+      "gm_deterministic_mean_f1": 0.54,
+      "rag_progressive_mean_f1": 0.3413,
+      "gm_prog_minus_rag_prog_delta": 0.3987,
+      "gm_prog_minus_rag_prog_ci_95": [
+        0.36142857142857143,
+        0.46142857142857147
+      ],
+      "commit_repeat_ratio": 0.9
+    },
+    {
+      "repeat_set_path": "results/clean_eval_20260211_201431/repeat_sets/20260211_205352_swe_bench_psf_requests_strict_commit_fidelity_issues_swebench_requests_v2_10.json",
+      "repo_name": "psf/requests",
+      "dataset_name": "SWE-bench/SWE-bench",
+      "evaluation_track": "strict_commit_fidelity",
+      "issue_set_id": "issues_swebench_requests_v2_10",
+      "n_runs": 3,
+      "ci_ready": true,
+      "gm_progressive_mean_f1": 0.4556,
+      "gm_deterministic_mean_f1": 0.4133,
+      "rag_progressive_mean_f1": 0.2665,
+      "gm_prog_minus_rag_prog_delta": 0.189,
+      "gm_prog_minus_rag_prog_ci_95": [
+        0.12952380952380949,
+        0.2795238095238095
+      ],
+      "commit_repeat_ratio": 0.0
+    },
+    {
+      "repeat_set_path": "results/clean_eval_20260211_201431/repeat_sets/20260211_214022_swe_bench_pytest_dev_pytest_strict_commit_fidelity_issues_swebench_pytest_v2_10.json",
+      "repo_name": "pytest-dev/pytest",
+      "dataset_name": "SWE-bench/SWE-bench",
+      "evaluation_track": "strict_commit_fidelity",
+      "issue_set_id": "issues_swebench_pytest_v2_10",
+      "n_runs": 3,
+      "ci_ready": true,
+      "gm_progressive_mean_f1": 0.5022,
+      "gm_deterministic_mean_f1": 0.45,
+      "rag_progressive_mean_f1": 0.4515,
+      "gm_prog_minus_rag_prog_delta": 0.0507,
+      "gm_prog_minus_rag_prog_ci_95": [
+        -0.015238095238095217,
+        0.10309523809523813
+      ],
+      "commit_repeat_ratio": 0.0
+    },
+    {
+      "repeat_set_path": "results/clean_eval_20260211_201431/repeat_sets/20260211_215735_swe_bench_tiangolo_fastapi_strict_commit_fidelity_issues_swebench_fastapi_v2_10.json",
+      "repo_name": "tiangolo/fastapi",
+      "dataset_name": "SWE-bench/SWE-bench",
+      "evaluation_track": "strict_commit_fidelity",
+      "issue_set_id": "issues_swebench_fastapi_v2_10",
+      "n_runs": 3,
+      "ci_ready": true,
+      "gm_progressive_mean_f1": 0.48,
+      "gm_deterministic_mean_f1": 0.4067,
+      "rag_progressive_mean_f1": 0.4114,
+      "gm_prog_minus_rag_prog_delta": 0.0686,
+      "gm_prog_minus_rag_prog_ci_95": [
+        0.028095238095238062,
+        0.12761904761904763
+      ],
+      "commit_repeat_ratio": 0.3
+    },
+    {
+      "repeat_set_path": "results/clean_eval_20260211_201431/repeat_sets/20260211_221038_swe_bench_psf_requests_same_snapshot_amortized_issues_swebench_requests_v2_10.json",
+      "repo_name": "psf/requests",
+      "dataset_name": "SWE-bench/SWE-bench",
+      "evaluation_track": "same_snapshot_amortized",
+      "issue_set_id": "issues_swebench_requests_v2_10",
+      "n_runs": 3,
+      "ci_ready": true,
+      "gm_progressive_mean_f1": 0.5444,
+      "gm_deterministic_mean_f1": 0.4233,
+      "rag_progressive_mean_f1": 0.3079,
+      "gm_prog_minus_rag_prog_delta": 0.2365,
+      "gm_prog_minus_rag_prog_ci_95": [
+        0.2333333333333333,
+        0.23809523809523805
+      ],
+      "commit_repeat_ratio": 0.9
+    },
+    {
+      "repeat_set_path": "results/clean_eval_20260211_201431/repeat_sets/20260211_222707_swe_bench_pytest_dev_pytest_same_snapshot_amortized_issues_swebench_pytest_v2_10.json",
+      "repo_name": "pytest-dev/pytest",
+      "dataset_name": "SWE-bench/SWE-bench",
+      "evaluation_track": "same_snapshot_amortized",
+      "issue_set_id": "issues_swebench_pytest_v2_10",
+      "n_runs": 3,
+      "ci_ready": true,
+      "gm_progressive_mean_f1": 0.57,
+      "gm_deterministic_mean_f1": 0.4167,
+      "rag_progressive_mean_f1": 0.4987,
+      "gm_prog_minus_rag_prog_delta": 0.0713,
+      "gm_prog_minus_rag_prog_ci_95": [
+        0.014761904761904754,
+        0.1280952380952381
+      ],
+      "commit_repeat_ratio": 0.9
+    },
+    {
+      "repeat_set_path": "results/clean_eval_20260211_201431/repeat_sets/20260211_223957_swe_bench_tiangolo_fastapi_same_snapshot_amortized_issues_swebench_fastapi_v2_10.json",
+      "repo_name": "tiangolo/fastapi",
+      "dataset_name": "SWE-bench/SWE-bench",
+      "evaluation_track": "same_snapshot_amortized",
+      "issue_set_id": "issues_swebench_fastapi_v2_10",
+      "n_runs": 3,
+      "ci_ready": true,
+      "gm_progressive_mean_f1": 0.53,
+      "gm_deterministic_mean_f1": 0.3817,
+      "rag_progressive_mean_f1": 0.4115,
+      "gm_prog_minus_rag_prog_delta": 0.1185,
+      "gm_prog_minus_rag_prog_ci_95": [
+        0.09785714285714281,
+        0.1514285714285714
+      ],
+      "commit_repeat_ratio": 0.9
+    },
+    {
+      "repeat_set_path": "results/clean_eval_20260211_201431/repeat_sets/20260211_231558_swe_polybench_yt_dlp_yt_dlp_strict_commit_fidelity_issues_polybench_ytdlp_v2_5.json",
+      "repo_name": "yt-dlp/yt-dlp",
+      "dataset_name": "AmazonScience/SWE-PolyBench_Verified",
+      "evaluation_track": "strict_commit_fidelity",
+      "issue_set_id": "issues_polybench_ytdlp_v2_5",
+      "n_runs": 3,
+      "ci_ready": true,
+      "gm_progressive_mean_f1": 0.3822,
+      "gm_deterministic_mean_f1": 0.2971,
+      "rag_progressive_mean_f1": 0.1635,
+      "gm_prog_minus_rag_prog_delta": 0.2187,
+      "gm_prog_minus_rag_prog_ci_95": [
+        0.1333333333333333,
+        0.2666666666666667
+      ],
+      "commit_repeat_ratio": 0.0
+    },
+    {
+      "repeat_set_path": "results/clean_eval_20260211_201431/repeat_sets/20260212_002530_swe_polybench_keras_team_keras_strict_commit_fidelity_issues_polybench_keras_v2_10.json",
+      "repo_name": "keras-team/keras",
+      "dataset_name": "AmazonScience/SWE-PolyBench_Verified",
+      "evaluation_track": "strict_commit_fidelity",
+      "issue_set_id": "issues_polybench_keras_v2_10",
+      "n_runs": 3,
+      "ci_ready": true,
+      "gm_progressive_mean_f1": 0.319,
+      "gm_deterministic_mean_f1": 0.2738,
+      "rag_progressive_mean_f1": 0.1397,
+      "gm_prog_minus_rag_prog_delta": 0.1794,
+      "gm_prog_minus_rag_prog_ci_95": [
+        0.09523809523809527,
+        0.25476190476190474
+      ],
+      "commit_repeat_ratio": 0.0
+    },
+    {
+      "repeat_set_path": "results/clean_eval_20260211_201431/repeat_sets/20260212_004402_swe_polybench_yt_dlp_yt_dlp_same_snapshot_amortized_issues_polybench_ytdlp_v2_5.json",
+      "repo_name": "yt-dlp/yt-dlp",
+      "dataset_name": "AmazonScience/SWE-PolyBench_Verified",
+      "evaluation_track": "same_snapshot_amortized",
+      "issue_set_id": "issues_polybench_ytdlp_v2_5",
+      "n_runs": 3,
+      "ci_ready": true,
+      "gm_progressive_mean_f1": 0.3911,
+      "gm_deterministic_mean_f1": 0.2838,
+      "rag_progressive_mean_f1": 0.2167,
+      "gm_prog_minus_rag_prog_delta": 0.1744,
+      "gm_prog_minus_rag_prog_ci_95": [
+        0.09666666666666662,
+        0.2799999999999999
+      ],
+      "commit_repeat_ratio": 0.8
+    }
+  ]
+}

@@ -1,154 +1,84 @@
 \section{Method}
 \label{sec:method}
 
-We present a retrieval framework that operates over a structural representation of a software repository---a \emph{graph world model}---rather than over flat text embeddings alone. The framework supports multiple retrieval policies, ranging from a fully deterministic graph scorer to LLM-guided interactive search, all sharing the same underlying graph and index infrastructure. This section describes the graph construction (\S\ref{sec:graph_world_model}), the deterministic retrieval algorithm (\S\ref{sec:deterministic_retrieval}), the LLM-guided retrieval policies (\S\ref{sec:llm_guided_retrieval}), and the cost model used for comparison (\S\ref{sec:cost_model}).
+We present a retrieval framework that operates over a structural representation of a software repository---a \emph{graph world model}---and a patching pipeline that uses retrieved context to generate unified diffs. The framework supports eleven retrieval strategies spanning three tiers: zero-LLM-runtime baselines, single-turn agentic ablations, and multi-turn agentic methods. This section describes the graph world model (\S\ref{sec:graph_world_model}), the retrieval methods in each tier (\S\ref{sec:retrieval_methods}), the patching pipeline (\S\ref{sec:patching_method}), and the cost model used for comparison (\S\ref{sec:cost_model}).
 
 \subsection{Graph World Model}
 \label{sec:graph_world_model}
 
-Given a repository snapshot at a specific commit, we construct a directed, typed knowledge graph $G = (V, E)$ using static analysis of the Python source tree.
+Given a repository snapshot at a specific commit, we construct a directed, typed knowledge graph $G = (V, E)$ using static analysis of the Python source tree via the \texttt{tree-sitter} parser. Nodes $V$ are categorised into three types: \emph{file} nodes (one per source file), \emph{class} nodes, and \emph{function/method} nodes. Each node stores a compact metadata record comprising its qualified name, file path, docstring (if present), and a brief signature. Node embeddings are computed once at build time over this metadata using the Gemini text-embedding-004 model; the resulting vectors populate a FAISS IVF index for semantic search.
 
-\paragraph{Nodes.}
-The node set $V$ contains three entity types:
-\begin{itemize}[leftmargin=1.5em]
-  \item \textbf{File nodes}: one per Python source file within the configured source prefixes.
-  \item \textbf{Class nodes}: one per class definition, storing the class name, docstring, and base classes.
-  \item \textbf{Function nodes}: one per function or method definition, storing the function name, signature, and docstring.
-\end{itemize}
-Crucially, node attributes include only structural metadata---names, signatures, and docstrings---but \emph{not} implementation bodies. This keeps the graph compact and avoids leaking solution-relevant code into the retrieval signal.
+Edges $E$ encode four structural relation types: \textsc{contains} (file $\to$ class, file $\to$ function, class $\to$ method), \textsc{imports} (file $\to$ file, resolved statically), \textsc{calls} (function $\to$ function, with confidence tier: \emph{definite}, \emph{probable}, or \emph{possible} based on static resolvability), and \textsc{inherits} (class $\to$ parent class). The graph index is built once per repository snapshot; across a retrieval evaluation run on a single snapshot, the setup cost is amortised over all issues evaluated against that snapshot.
 
-\paragraph{Edges.}
-The edge set $E$ contains five typed relations:
-\begin{itemize}[leftmargin=1.5em]
-  \item \texttt{DEFINES}: file $\to$ class or function defined in that file.
-  \item \texttt{CONTAINS}: class $\to$ method defined within that class.
-  \item \texttt{IMPORTS}: file $\to$ file, derived from import statements.
-  \item \texttt{CALLS}: function $\to$ function, resolved by static call analysis.
-  \item \texttt{INHERITS}: class $\to$ class, derived from base class declarations.
-\end{itemize}
+\subsection{Retrieval Methods}
+\label{sec:retrieval_methods}
 
-\paragraph{Call resolution with confidence tiers.}
-Call edges are the most challenging to resolve statically in a dynamic language like Python. We decompose call resolution into three modular components: an \texttt{ImportResolver} that builds a per-file symbol table from import statements (including aliases, relative imports, and star imports), a \texttt{TypeInferenceEngine} that propagates type hints and simple assignment-based types, and a \texttt{CallResolver} that matches call sites to target functions using the resolved symbol context.
+We evaluate eleven retrieval strategies, grouped into three tiers by their use of LLM calls at query time.
 
-Each call edge is tagged with a confidence tier:
-\begin{itemize}[leftmargin=1.5em]
-  \item \textbf{High}: target resolved via explicit import or type annotation.
-  \item \textbf{Medium}: target matched by name within the same module.
-  \item \textbf{Low}: target matched by global suffix or name-only fallback.
-\end{itemize}
-Low-confidence edges can be optionally excluded via an ablation switch, enabling controlled experiments on graph precision versus recall.
+\subsubsection{Zero-LLM-Runtime Tier}
+\label{sec:tier_zero}
 
-\paragraph{Semantic index.}
-We build a FAISS \citep{johnson2021faiss} flat inner-product index over vector embeddings of node text (concatenation of name, signature, and docstring). Embeddings are produced by \texttt{gemini-embedding-001} \citep{gemini2024}. This index serves as the \emph{semantic entry point} into the graph: given an issue description, we retrieve the top-$K$ most similar nodes and use them as seeds for graph-based expansion.
+These methods issue no LLM calls during query execution. Their total token cost consists only of the one-time graph setup embedding.
 
-\paragraph{Parsing infrastructure.}
-AST parsing uses \texttt{tree-sitter} \citep{brunsfeld2018treesitter} for language-agnostic syntax tree construction. The graph is stored and queried using NetworkX \citep{hagberg2008networkx}.
+\paragraph{BM25 (\texttt{bm25}).}
+BM25Plus \citep{lv2011lower} over tokenised source files provides a non-neural baseline with no index. Files are scored by term-overlap between the issue text and the concatenation of file path, function names, docstrings, and source tokens. No graph structure or embeddings are used.
 
-\subsection{Deterministic Graph Retrieval}
-\label{sec:deterministic_retrieval}
+\paragraph{Graph-PageRank (\texttt{repomap\_like}).}
+Inspired by Aider's repository map \citep{aider2023}, this method computes a personalised PageRank over the file-level import graph, treating files that have high BM25 similarity to the issue as seed nodes. The final file score is the product of the BM25 score and the PageRank mass, biasing retrieval toward structurally central files that are lexically relevant to the issue.
 
-The deterministic retriever (\texttt{gm\_deterministic}) is a zero-LLM-runtime method that produces a ranked file list from the graph without any language model calls at query time.
+\paragraph{GM-Deterministic (\texttt{gm\_deterministic}).}
+A multi-component scoring function over all nodes in the graph world model, requiring no LLM calls at query time. For each node, a score is computed as a weighted sum of four components: (1) \emph{semantic score}---cosine similarity between the query embedding and the node embedding; (2) \emph{structural score}---a BM25 match of the issue text against the node's graph neighbourhood (immediate import/call neighbours); (3) \emph{confidence score}---inversely proportional to the minimum call-edge confidence tier on paths from the query seed to the node; and (4) \emph{hub penalty}---a multiplicative discount applied to nodes with very high in-degree (hub nodes that appear spuriously relevant due to centrality). The top-$K$ scored files are returned.
 
-\paragraph{Algorithm overview.}
-Given an issue description $q$:
-\begin{enumerate}[leftmargin=1.5em]
-  \item \textbf{Seed retrieval}: query the FAISS index with $q$ to obtain the top-$K_{\text{seed}}$ nodes (default $K_{\text{seed}} = 8$), each with a normalized semantic similarity score.
-  \item \textbf{Bounded graph expansion}: from each seed node, run bidirectional BFS with maximum depth $D$ (default 2) and maximum neighbors per node $N$ (default 12), traversing all edge types. Record each discovered path with its source seed, edge types, and edge confidence.
-  \item \textbf{File evidence aggregation}: map each visited node to its containing file and aggregate five evidence components per file.
-  \item \textbf{Scoring and ranking}: compute a weighted score per file and return the top-$K_{\text{output}}$ files.
-\end{enumerate}
+\paragraph{Raw-RAG-Function (\texttt{raw\_rag\_function}).}
+Dense retrieval over function-body embeddings. Each function (or method) in the repository is embedded separately using its full source text. At query time, the top-$K$ most similar function embeddings are retrieved and their containing files are returned. This establishes a fine-grained dense-retrieval baseline that does not use graph structure.
 
-\paragraph{Scoring formula.}
-For each candidate file $f$, the score is:
-\begin{multline}
-\label{eq:deterministic_score}
-s(f) = w_{\text{sem}} \cdot S_{\text{sem}}(f) + w_{\text{graph}} \cdot S_{\text{graph}}(f) \\
-  + w_{\text{conf}} \cdot S_{\text{conf}}(f) + w_{\text{hint}} \cdot S_{\text{hint}}(f) - w_{\text{pen}} \cdot S_{\text{pen}}(f)
-\end{multline}
-where:
-\begin{itemize}[leftmargin=1.5em]
-  \item $S_{\text{sem}}(f)$: maximum seed similarity among nodes in $f$.
-  \item $S_{\text{graph}}(f)$: graph support strength, based on the count and diversity of independent paths reaching $f$.
-  \item $S_{\text{conf}}(f)$: confidence quality of supporting paths, weighting high-confidence edges at $1.0$, medium at $0.6$, and low at $0.2$.
-  \item $S_{\text{hint}}(f)$: lexical overlap between the issue text and the file or module name.
-  \item $S_{\text{pen}}(f)$: hub penalty for files reachable only through low-confidence or shallow-path evidence.
-\end{itemize}
-Default coefficients are $w_{\text{sem}} = 0.35$, $w_{\text{graph}} = 0.30$, $w_{\text{conf}} = 0.20$, $w_{\text{hint}} = 0.10$, $w_{\text{pen}} = 0.05$.
+\paragraph{Raw-RAG-Fixed (\texttt{raw\_rag\_fixed}).}
+Dense retrieval over fixed-size sliding-window chunks. The source code of each file is chunked into overlapping windows of a fixed token budget, each chunk embedded independently. Top-$K$ chunks by cosine similarity are retrieved and their source files returned. This corresponds to the standard code-RAG approach used in production retrieval pipelines.
 
-\subsection{LLM-Guided Retrieval Policies}
-\label{sec:llm_guided_retrieval}
+\subsubsection{Single-Turn Agentic Tier (Ablation Variants)}
+\label{sec:tier_single}
 
-In addition to the deterministic retriever, we evaluate LLM-guided retrieval via two agent families that use \texttt{gemini-2.0-flash} \citep{gemini2024} as the language model backend with function calling.
+These methods make a single LLM call at query time to either score or query the graph. They appear in the retrieval evaluation to isolate the contribution of multi-turn reasoning, but are excluded from patching runs (which require high-quality file lists).
 
-\paragraph{Graph manager agent.}
-The \texttt{ManagerAgent} operates over the graph world model through three tools:
-\begin{itemize}[leftmargin=1.5em]
-  \item \texttt{search\_nodes(query, top\_k)}: semantic search over the graph node index.
-  \item \texttt{get\_neighbors(node\_id)}: retrieve typed neighbors of a node in the graph.
-  \item \texttt{get\_file\_summary(file\_path)}: retrieve structural metadata for a file (defined classes, functions, imports).
-\end{itemize}
-The agent is prompted with the issue description and iteratively navigates the graph to identify relevant files, constrained by a maximum turn budget.
+\paragraph{GM-Baseline (\texttt{gm\_baseline}).}
+A single LLM call scores the graph nodes from the issue text directly, without multi-turn traversal. The model receives a summary of the graph structure and outputs a ranked list of candidate nodes. This ablation isolates the benefit of iterative graph navigation over single-pass LLM scoring.
 
-\paragraph{RAG agent.}
-The \texttt{RAGAgent} operates over a standard dense vector index built from code chunks (either function-level or fixed-size). It uses a single tool:
-\begin{itemize}[leftmargin=1.5em]
-  \item \texttt{search\_codebase(query, top\_k)}: dense retrieval over embedded code chunks.
-\end{itemize}
+\paragraph{RAG-Baseline (\texttt{rag\_baseline}).}
+A single LLM call formulates a dense search query from the issue, issues one semantic search against the FAISS index, and returns the top-$K$ results. No follow-up tools are permitted. This ablation isolates the benefit of multi-turn query refinement in RAG-Progressive.
 
-\paragraph{Retrieval modes.}
-Each agent family supports two modes:
-\begin{itemize}[leftmargin=1.5em]
-  \item \textbf{Baseline}: the agent receives the full issue text and produces a file list in a single interaction pass.
-  \item \textbf{Progressive}: the agent receives a cleaned and optionally path-redacted version of the issue text, uses compact tool payloads (identifiers and scores only), and applies evidence-weighted ranking with confirmed-file gating when confirmations exist.
-\end{itemize}
+\subsubsection{Multi-Turn Agentic Tier}
+\label{sec:tier_multi}
 
-\subsection{Methods Compared}
-\label{sec:methods_compared}
+These methods engage the LLM in an iterative dialogue with retrieval tools, allowing progressive refinement.
 
-Table~\ref{tab:methods} summarizes the seven retrieval methods evaluated.
+\paragraph{GM-Progressive (\texttt{gm\_progressive}).}
+The primary graph-guided method. The LLM is provided with a tool set for graph traversal: \texttt{search\_nodes} (semantic search over the FAISS index), \texttt{get\_neighbours} (expand a node's immediate graph neighbourhood), \texttt{confirm\_file} (add a file to the confirmed set), and \texttt{reject\_file}. In each turn, the model may call any tool or emit a final answer. The dialogue continues until the model emits a final file list or the turn budget is exhausted. The multi-turn structure allows the model to progressively confirm or reject hypotheses about relevant files, using graph structure to resolve structural dependencies that embedding similarity alone cannot capture.
 
-\begin{table*}[t]
-\centering
-\small
-\begin{tabular}{llccc}
-\toprule
-Method & Description & Index & LLM at query & Graph \\
-\midrule
-\texttt{gm\_deterministic} & Deterministic graph scorer & Graph + FAISS & No & Yes \\
-\texttt{gm\_progressive} & Graph manager, progressive mode & Graph + FAISS & Yes & Yes \\
-\texttt{gm\_baseline} & Graph manager, baseline mode & Graph + FAISS & Yes & Yes \\
-\texttt{rag\_progressive} & RAG agent, progressive mode & Chunk FAISS & Yes & No \\
-\texttt{rag\_baseline} & RAG agent, baseline mode & Chunk FAISS & Yes & No \\
-\texttt{raw\_rag\_function} & Top-$K$ function chunks, no LLM & Chunk FAISS & No & No \\
-\texttt{raw\_rag\_fixed} & Top-$K$ fixed chunks, no LLM & Chunk FAISS & No & No \\
-\bottomrule
-\end{tabular}
-\caption{Summary of retrieval methods. ``Graph'' indicates whether the method uses the AST-derived knowledge graph. ``LLM at query'' indicates whether language model calls are made during per-issue retrieval.}
-\label{tab:methods}
-\end{table*}
+\paragraph{RAG-Progressive (\texttt{rag\_progressive}).}
+Multi-turn RAG using symmetric tools: \texttt{semantic\_search} (dense vector search), \texttt{get\_file\_contents} (read a source file), and \texttt{confirm\_file}. The model may issue multiple queries with refined terms and inspect file contents before committing to a final list. This provides a strong agentic baseline that benefits from multi-turn refinement without graph structure.
+
+\paragraph{Agentless-Like (\texttt{agentless\_like\_localization}).}
+A three-stage hierarchical localization procedure adapted from Agentless \citep{xia2024agentless}. Stage~1: the LLM receives the directory tree and ranks candidate files by relevance to the issue. Stage~2: the LLM receives the content of Stage~1 candidates and selects relevant symbols (functions, classes). Stage~3: the LLM receives the selected symbol bodies and identifies the precise relevant spans. Unlike the original Agentless, our implementation uses the graph world model to supply symbol-level structure in Stage~2, while Stage~1 operates on the raw directory tree.
+
+\paragraph{Agentic Cold-Start (\texttt{agentic\_cold\_start}).}
+Direct filesystem tool use with no retrieval index. The LLM is provided with tools to navigate and read the raw repository: \texttt{list\_directory}, \texttt{read\_file}, and \texttt{search\_code} (regex over file contents). No graph, no embedding index. This method serves as a baseline for the intrinsic file-navigation capability of the model and as an upper bound on what is achievable without retrieval infrastructure.
+
+\subsection{Patching Method}
+\label{sec:patching_method}
+
+Patch generation is a single-turn procedure applied uniformly across all retrieval methods that produce a confirmed file list. The issue description and the full contents of the confirmed files are concatenated into a single context window, and a Gemini 2.0 Flash model generates a unified diff in standard \texttt{git diff} format. No multi-turn repair is attempted. This design isolates the effect of retrieval quality on patch success: differences in resolved rate across retrieval methods reflect retrieval quality, not patching strategy variation.
+
+Patch evaluation uses the SWE-bench Verified harness \citep{swebench2024}: the generated patch is applied to the repository at the issue's \texttt{base\_commit} and the repository's test suite is executed in an isolated Docker container. A patch is counted as resolved if and only if all tests that were failing before the patch now pass, with no regression in previously passing tests.
 
 \subsection{Cost Model}
 \label{sec:cost_model}
 
-We decompose the total token cost into setup and runtime components to enable fair comparison across methods with different index construction costs.
+Token cost is decomposed into three components for every method:
 
-For method $m$ over $N$ issues:
-\begin{equation}
-\label{eq:total_cost}
-C_m^{\text{total}} = C_m^{\text{setup}} + \sum_{i=1}^{N}\left(C_{m,i}^{\text{llm}} + C_{m,i}^{\text{qemb}}\right)
-\end{equation}
-where $C_m^{\text{setup}}$ is the one-time embedding cost for index construction (graph node embeddings or code chunk embeddings), $C_{m,i}^{\text{llm}}$ is the LLM token usage for issue $i$, and $C_{m,i}^{\text{qemb}}$ is the query embedding cost for issue $i$.
+\begin{description}[leftmargin=1em,style=nextline]
+  \item[Setup embedding tokens] Tokens consumed building the retrieval index (graph metadata embeddings, or code chunk embeddings for RAG methods). Amortised over all issues evaluated against a single snapshot.
+  \item[Runtime LLM tokens] Prompt + completion tokens consumed by LLM calls during query execution. Zero for the Zero-LLM-Runtime tier.
+  \item[Query embedding tokens] Tokens consumed embedding the issue query for dense search. Zero for BM25 and Graph-PageRank.
+\end{description}
 
-The per-issue amortized cost is:
-\begin{equation}
-\label{eq:amortized_cost}
-C_m^{\text{amortized}} = \frac{C_m^{\text{total}}}{N}
-\end{equation}
-
-\paragraph{Break-even analysis.}
-Given two methods $m$ and $b$ where $m$ has lower setup cost but higher per-issue runtime cost, the break-even task count is:
-\begin{equation}
-\label{eq:breakeven}
-N_{\text{break-even}} = \frac{C_m^{\text{setup}} - C_b^{\text{setup}}}{C_b^{\text{runtime}} - C_m^{\text{runtime}}}
-\end{equation}
-where $C^{\text{runtime}} = C^{\text{llm}} + C^{\text{qemb}}$ is the mean per-issue runtime cost. When the denominator is positive, $N_{\text{break-even}}$ gives the number of tasks at which method $m$ becomes cheaper than $b$ in total cost.
+We report two cost-per-resolved-issue (CPR) views: \emph{method-accounted CPR} adds each method's full setup cost to its runtime cost before dividing by resolved count, providing a like-for-like comparison; \emph{as-run CPR} reports only the tokens actually consumed in the patching run (i.e., excluding setup costs shared with retrieval evaluation), reflecting practical amortised cost when the same index is reused.

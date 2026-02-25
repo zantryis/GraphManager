@@ -127,11 +127,11 @@ tools/
   analyze_v4_handoff.py    V1 N=100 analysis script
 
 patch_manifests/
-  v2_verified/             V2 manifests (12 repos x 8 methods + pilots)
+  v2_verified/             V2 manifests (12 repos x 10 methods + oracle + pilots)
   v2_ablation_smoke/       Ablation smoke manifests
   n100_verified/           Frozen V1 N=100 split
 
-tests/                     242 unit tests (make test)
+tests/                     258 unit tests (make test)
 configs/                   Frozen experiment configs
 docs/                      Design docs and analysis artifacts
 dev_logs/                  Decision logs (one per session)

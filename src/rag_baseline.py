@@ -147,17 +147,21 @@ class RAGIndex:
         texts = [c["text"][:500] for c in self.chunks]  # truncate long chunks for embedding
         self.embedding_tokens_estimate = sum(len(t) for t in texts) // 4
 
+        from src.api_retry import embed_with_retry
+
         all_embeddings = []
         batch_size = 100
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
-            result = self.client.models.embed_content(
-                model="gemini-embedding-001",
-                contents=batch,
-                config=types.EmbedContentConfig(
-                    task_type="RETRIEVAL_DOCUMENT",
-                    output_dimensionality=768,
-                ),
+            result = embed_with_retry(
+                lambda b=batch: self.client.models.embed_content(
+                    model="gemini-embedding-001",
+                    contents=b,
+                    config=types.EmbedContentConfig(
+                        task_type="RETRIEVAL_DOCUMENT",
+                        output_dimensionality=768,
+                    ),
+                )
             )
             for emb in result.embeddings:
                 all_embeddings.append(emb.values)
@@ -185,14 +189,17 @@ class RAGIndex:
         if self.index is None:
             return {"results": [], "query_embedding_tokens": 0}
 
+        from src.api_retry import embed_with_retry
         query_embedding_tokens = max(len(query.strip()) // 4, 0) if query else 0
-        result = self.client.models.embed_content(
-            model="gemini-embedding-001",
-            contents=[query],
-            config=types.EmbedContentConfig(
-                task_type="RETRIEVAL_QUERY",
-                output_dimensionality=768,
-            ),
+        result = embed_with_retry(
+            lambda: self.client.models.embed_content(
+                model="gemini-embedding-001",
+                contents=[query],
+                config=types.EmbedContentConfig(
+                    task_type="RETRIEVAL_QUERY",
+                    output_dimensionality=768,
+                ),
+            )
         )
         query_emb = np.array([result.embeddings[0].values], dtype=np.float32)
         query_emb = query_emb / np.linalg.norm(query_emb)

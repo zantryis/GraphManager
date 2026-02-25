@@ -163,7 +163,9 @@ class AgentlessLikeLocalizer:
 
         llm_ranked_files = []
         invalid_stage1 = 0
+        stage1_llm_fired = False
         if self.client is not None and self.file_branch_top_n > 0 and candidate_pool:
+            stage1_llm_fired = True
             llm_ranked_files, llm_usage, invalid_stage1 = self._llm_rank_files_stage1(
                 issue_text=issue_text,
                 candidate_pool=candidate_pool,
@@ -179,7 +181,9 @@ class AgentlessLikeLocalizer:
 
         selected_symbols = self._deterministic_symbol_selection(stage1_files)
         invalid_stage2 = 0
+        stage2_llm_fired = False
         if self.stage2_enabled and self.client is not None and stage1_files:
+            stage2_llm_fired = True
             selected_symbols, stage2_usage, invalid_stage2 = self._llm_select_symbols_stage2(
                 issue_text=issue_text,
                 candidate_files=stage1_files,
@@ -190,7 +194,9 @@ class AgentlessLikeLocalizer:
         selected_spans = self._deterministic_stage3_spans(selected_symbols, issue_text)
         stage3_schema_violations = 0
         stage3_context_tokens_by_file = {}
+        stage3_llm_fired = False
         if self.stage3_enabled and self.client is not None and selected_symbols:
+            stage3_llm_fired = True
             (
                 selected_spans,
                 stage3_usage,
@@ -234,6 +240,9 @@ class AgentlessLikeLocalizer:
                 float(invalid_stage1) / float(max(self.file_branch_top_n, 1))
             ),
             "out_of_candidate_rejection_count": int(invalid_stage1 + invalid_stage2),
+            "stage1_llm_fired": bool(stage1_llm_fired),
+            "stage2_llm_fired": bool(stage2_llm_fired),
+            "stage3_llm_fired": bool(stage3_llm_fired),
         }
         usage["stop_reason"] = "stage3_spans" if selected_spans else "stage1_rank"
         return final_files[: self.merge_top_k], usage

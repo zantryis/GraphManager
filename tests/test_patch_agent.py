@@ -298,6 +298,42 @@ class PatchAgentGenerationTests(unittest.TestCase):
         self.assertIn("api_error", tokens["stop_reason"])
         self.assertIn("quota exceeded", tokens["error"])
 
+    def test_retries_on_transient_429_and_succeeds(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "fix.py").write_text("old\n")
+
+            client = MagicMock()
+            diff = "--- a/fix.py\n+++ b/fix.py\n@@ -1 +1 @@\n-old\n+new\n"
+            client.models.generate_content.side_effect = [
+                RuntimeError("429 RESOURCE_EXHAUSTED: quota"),
+                self._make_mock_response(f"<patch>\n{diff}\n</patch>"),
+            ]
+
+            with patch("src.api_retry.time") as mock_time:
+                mock_time.sleep = MagicMock()
+                agent = PatchAgent(str(repo), client=client)
+                result_patch, tokens = agent.generate_patch("issue", ["fix.py"])
+
+        self.assertIsNotNone(result_patch)
+        self.assertEqual(client.models.generate_content.call_count, 2)
+        self.assertEqual(tokens["turns_used"], 1)
+
+    def test_non_transient_error_not_retried(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "fix.py").write_text("code\n")
+
+            client = MagicMock()
+            client.models.generate_content.side_effect = ValueError("invalid model")
+
+            agent = PatchAgent(str(repo), client=client)
+            result_patch, tokens = agent.generate_patch("issue", ["fix.py"])
+
+        self.assertIsNone(result_patch)
+        self.assertIn("api_error", tokens["stop_reason"])
+        self.assertEqual(client.models.generate_content.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

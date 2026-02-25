@@ -9,7 +9,10 @@
 # - n=10 per repo (first 10 from patching manifest), except seaborn (n=2, all available)
 # - strict_commit_fidelity track (per-issue gold checkout)
 # - 1 repeat (anchor repos Flask/Requests/Pytest already have 3 repeats in main matrix)
-# - Methods: gm_progressive, rag_progressive, bm25 (the 3 that matter for cost story)
+# - Methods: all 11 (full method matrix for V2 alignment)
+#   Tier 0 (zero-LLM): gm_deterministic, raw_rag_function, raw_rag_fixed, bm25, repomap_like
+#   Tier 1 (agentic):   gm_progressive, gm_baseline, rag_progressive, rag_baseline,
+#                        agentless_like_localization, agentic_cold_start
 
 suite: retrieval-expansion-v2
 
@@ -17,6 +20,7 @@ description: >
   Expand retrieval evaluation to all 12 V2 patching repos.
   Eliminates the retrieval/patching population mismatch (STATE.md issue I1).
   Instance IDs drawn from the first 10 of each V2 Verified patching manifest.
+  Runs all 11 methods for full V2 method matrix alignment.
 
 defaults:
   manager_max_turns: 8
@@ -27,6 +31,18 @@ defaults:
   notes: retrieval-expansion-v2
   task_family: swe-bench
   dataset_name: SWE-bench/SWE-bench_Verified
+  methods:
+    - gm_deterministic
+    - gm_progressive
+    - gm_baseline
+    - rag_progressive
+    - rag_baseline
+    - raw_rag_function
+    - raw_rag_fixed
+    - bm25
+    - repomap_like
+    - agentless_like_localization
+    - agentic_cold_start
 
 experiments:
   # --- astropy (n=10 of 23 Verified) ---

@@ -1,0 +1,41 @@
+name: v2_full
+description: "V2 full campaign: retrieval T0 (3 passes by cost tier) then patching T1+T2"
+
+steps:
+  - name: t0_pass1_zero_llm
+    description: "T0 Pass 1: BM25 + repomap_like + gm_deterministic + raw_rag_* (zero/embed-only, max-parallel 8)"
+    command: >
+      python run_suite.py experiments_retrieval_expansion_v2.yaml
+      --methods bm25,repomap_like,gm_deterministic,raw_rag_function,raw_rag_fixed
+      --max-parallel 8 --skip-completed
+
+  - name: t0_pass2_agentic_single
+    description: "T0 Pass 2: single-turn agentic ablations (max-parallel 4)"
+    command: >
+      python run_suite.py experiments_retrieval_expansion_v2.yaml
+      --methods gm_baseline,rag_baseline,agentless_like_localization
+      --max-parallel 4 --skip-completed
+
+  - name: t0_pass3_agentic_multi
+    description: "T0 Pass 3: multi-turn agentic methods (max-parallel 3)"
+    command: >
+      python run_suite.py experiments_retrieval_expansion_v2.yaml
+      --methods gm_progressive,rag_progressive,agentic_cold_start
+      --max-parallel 3 --skip-completed
+
+  - name: t1_patching_stage1
+    description: "T1: Patch generation for all 123 manifests (no Docker)"
+    command: >
+      python tools/run_manifest_pool.py
+      --manifest-list campaigns/v2_manifests.txt
+      --results-dir results/v2_full_runs
+      --max-parallel-repos 4 --resume-incomplete
+
+  - name: t2_patching_stage2
+    description: "T2: SWE-bench harness (Docker) for all completed Stage 1"
+    command: >
+      python tools/run_manifest_pool.py
+      --manifest-list campaigns/v2_manifests.txt
+      --results-dir results/v2_full_runs
+      --evaluate
+      --max-parallel-repos 4 --resume-incomplete

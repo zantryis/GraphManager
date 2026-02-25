@@ -4,7 +4,8 @@
 V2 design decisions:
   - Dataset: SWE-bench Verified, full 500-instance test set (no cap per repo)
   - Methods (full matrix): oracle, gm_progressive, rag_progressive,
-    gm_deterministic, raw_rag_function, raw_rag_fixed, bm25, agentic_cold_start
+    gm_deterministic, raw_rag_function, raw_rag_fixed, bm25, agentic_cold_start,
+    repomap_like, agentless_like_localization
   - Pilot: psf/requests instances only (8 instances in Verified)
   - instance_wall_clock_cap_s: 600 (bumped from V1's 480)
   - rate_limit_max_retries: 3 (bumped from V1's 2)
@@ -22,6 +23,8 @@ Manifest structure (per-repo, same pattern as N=100 generator):
     <repo_slug>_raw_rag_fixed_v1.yaml all instances in repo, raw_rag_fixed
     <repo_slug>_bm25_v1.yaml          all instances in repo, bm25
     <repo_slug>_agentic_cold_start_v1.yaml  all instances in repo, agentic_cold_start
+    <repo_slug>_repomap_like_v1.yaml      all instances in repo, repomap_like
+    <repo_slug>_agentless_like_localization_v1.yaml  all instances in repo, agentless_like_localization
     manifest_ledger_v2.json
 
 Usage:
@@ -56,12 +59,13 @@ SOURCE_PREFIXES: dict[str, list[str]] = {
     "scikit-learn/scikit-learn": ["sklearn"],
     "astropy/astropy": ["astropy"],
     "pydata/xarray": ["xarray"],
+    "mwaskom/seaborn": ["seaborn"],
     "django/django": ["django"],
     "pylint-dev/pylint": ["pylint"],
     "psf/black": ["blib2to3", "src/black"],
 }
 
-# Full-run methods (8-method matrix with oracle included).
+# Full-run methods (10-method matrix with oracle included).
 FULL_METHODS = [
     "oracle",
     "gm_progressive",
@@ -71,6 +75,8 @@ FULL_METHODS = [
     "raw_rag_fixed",
     "bm25",
     "agentic_cold_start",
+    "repomap_like",
+    "agentless_like_localization",
 ]
 METHOD_RETRIEVAL = {method: method for method in FULL_METHODS}
 

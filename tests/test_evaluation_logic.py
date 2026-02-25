@@ -422,6 +422,7 @@ Traceback (most recent call last):
         context = {
             "graph_file_paths": {"some/file.py"},
             "bm25_file_paths": {"some/file.py"},
+            "cold_start_file_paths": {"some/file.py"},
             "setup_costs": self._valid_setup_costs(200),
         }
         validate_commit_context(context)  # must not raise
@@ -510,6 +511,35 @@ Traceback (most recent call last):
             context,
             required_methods=("repomap_like",),
         )
+
+    def test_agentic_cold_start_in_all_methods(self):
+        self.assertIn("agentic_cold_start", ALL_METHODS)
+
+    def test_validate_commit_context_agentic_cold_start_allows_zero_everything(self):
+        setup_costs = self._valid_setup_costs(0)
+        context = {
+            "graph_file_paths": set(),
+            "cold_start_file_paths": {"some/file.py"},
+            "setup_costs": setup_costs,
+        }
+        validate_commit_context(
+            context,
+            required_methods=("agentic_cold_start",),
+        )
+
+    def test_validate_commit_context_agentic_cold_start_raises_on_empty_files(self):
+        setup_costs = self._valid_setup_costs(0)
+        context = {
+            "graph_file_paths": set(),
+            "cold_start_file_paths": set(),
+            "setup_costs": setup_costs,
+        }
+        with self.assertRaises(ValueError) as cm:
+            validate_commit_context(
+                context,
+                required_methods=("agentic_cold_start",),
+            )
+        self.assertIn("cold", str(cm.exception).lower())
 
     def test_copy_run_artifacts_skips_missing_graph(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -166,5 +166,65 @@ class AgentlessLikeLocalizationTests(unittest.TestCase):
         self.assertEqual(first, second)
 
 
+    def test_llm_fired_flags_false_when_no_client(self):
+        localizer = AgentlessLikeLocalizer(
+            rag_index=_FakeRAGIndex(),
+            graph=self._graph(),
+            client=None,
+            stage2_enabled=True,
+            stage3_enabled=True,
+            merge_top_k=3,
+        )
+        _, usage = localizer.find_relevant_files("bug in b")
+        meta = usage["agentless_like_meta"]
+        self.assertFalse(meta["stage1_llm_fired"])
+        self.assertFalse(meta["stage2_llm_fired"])
+        self.assertFalse(meta["stage3_llm_fired"])
+
+    def test_llm_fired_flags_true_when_client_present(self):
+        client = _FakeClient(
+            responses=[
+                '{"files":["pkg/b.py"]}',
+                '{"symbols":["pkg/b.py::fb"]}',
+                '{"spans":[{"symbol_id":"pkg/b.py::fb","confidence":0.8}]}',
+            ]
+        )
+        localizer = AgentlessLikeLocalizer(
+            rag_index=_FakeRAGIndex(),
+            graph=self._graph(),
+            client=client,
+            stage2_enabled=True,
+            stage3_enabled=True,
+            file_branch_top_n=2,
+            merge_top_k=3,
+        )
+        _, usage = localizer.find_relevant_files("bug in b")
+        meta = usage["agentless_like_meta"]
+        self.assertTrue(meta["stage1_llm_fired"])
+        self.assertTrue(meta["stage2_llm_fired"])
+        self.assertTrue(meta["stage3_llm_fired"])
+
+    def test_llm_fired_flags_respect_stage_disabled(self):
+        client = _FakeClient(
+            responses=[
+                '{"files":["pkg/b.py"]}',
+            ]
+        )
+        localizer = AgentlessLikeLocalizer(
+            rag_index=_FakeRAGIndex(),
+            graph=self._graph(),
+            client=client,
+            stage2_enabled=False,
+            stage3_enabled=False,
+            file_branch_top_n=2,
+            merge_top_k=3,
+        )
+        _, usage = localizer.find_relevant_files("bug in b")
+        meta = usage["agentless_like_meta"]
+        self.assertTrue(meta["stage1_llm_fired"])
+        self.assertFalse(meta["stage2_llm_fired"])
+        self.assertFalse(meta["stage3_llm_fired"])
+
+
 if __name__ == "__main__":
     unittest.main()

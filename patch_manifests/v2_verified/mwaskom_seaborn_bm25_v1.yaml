@@ -1,7 +1,8 @@
 dataset_name: SWE-bench/SWE-bench_Verified
 split: test
 repo_name: mwaskom/seaborn
-source_prefixes: []
+source_prefixes:
+- seaborn
 retrieval_method: bm25
 manager_max_turns: 8
 patch_max_turns: 1

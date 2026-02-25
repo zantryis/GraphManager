@@ -16,6 +16,8 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 
+from src.api_retry import embed_with_retry as _call_with_retry
+
 PATCH_SYSTEM_PROMPT = """You are a software engineering expert fixing GitHub issues.
 
 You will receive:
@@ -207,14 +209,18 @@ class PatchAgent:
 
         for turn in range(max_turns):
             try:
-                response = self.client.models.generate_content(
-                    model=self.model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=PATCH_SYSTEM_PROMPT,
-                        temperature=0.0,
-                        max_output_tokens=self.max_output_tokens,
+                response = _call_with_retry(
+                    lambda: self.client.models.generate_content(
+                        model=self.model,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            system_instruction=PATCH_SYSTEM_PROMPT,
+                            temperature=0.0,
+                            max_output_tokens=self.max_output_tokens,
+                        ),
                     ),
+                    retries=3,
+                    initial_delay_s=6.0,
                 )
             except Exception as e:
                 return None, {

@@ -436,5 +436,101 @@ class PatchDashboardTests(unittest.TestCase):
             self.assertEqual(summary["per_method"]["oracle"]["n_instances"], 2)
 
 
+    def test_build_retrieval_status_populated_from_summaries(self):
+        from src.patch_dashboard import build_retrieval_status
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            runs_dir = root / "runs"
+
+            run1 = runs_dir / "20260218_220114"
+            run1.mkdir(parents=True, exist_ok=True)
+            summary1 = {
+                "gm_deterministic": {"mean_f1": 0.679, "n_success": 10},
+                "_meta": {
+                    "repo_name": "pallets/flask",
+                    "enabled_methods": ["gm_deterministic"],
+                    "run_id": "20260218_220114",
+                },
+            }
+            (run1 / "summary.json").write_text(json.dumps(summary1), encoding="utf-8")
+
+            run2 = runs_dir / "20260218_220200"
+            run2.mkdir(parents=True, exist_ok=True)
+            summary2 = {
+                "bm25": {"mean_f1": 0.512, "n_success": 10},
+                "_meta": {
+                    "repo_name": "psf/requests",
+                    "enabled_methods": ["bm25"],
+                    "run_id": "20260218_220200",
+                },
+            }
+            (run2 / "summary.json").write_text(json.dumps(summary2), encoding="utf-8")
+
+            status = build_retrieval_status(
+                root,
+                target_repos=["pallets/flask", "psf/requests"],
+                target_methods=["gm_deterministic", "bm25"],
+            )
+
+            flask_gm = status["grid"]["pallets/flask"]["gm_deterministic"]
+            self.assertEqual(flask_gm["status"], "done")
+            self.assertAlmostEqual(flask_gm["f1"], 0.679, places=3)
+
+            req_bm25 = status["grid"]["psf/requests"]["bm25"]
+            self.assertEqual(req_bm25["status"], "done")
+
+            # Flask/bm25 has no result → pending
+            flask_bm25 = status["grid"]["pallets/flask"]["bm25"]
+            self.assertEqual(flask_bm25["status"], "pending")
+            self.assertIsNone(flask_bm25["f1"])
+
+    def test_build_retrieval_status_in_progress_detection(self):
+        from src.patch_dashboard import build_retrieval_status
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            runs_dir = root / "runs"
+
+            # Run dir with graph.json but no summary.json → in-progress build
+            active_run = runs_dir / "20260225_113054"
+            active_run.mkdir(parents=True, exist_ok=True)
+            (active_run / "graph.json").write_text("{}", encoding="utf-8")
+
+            status = build_retrieval_status(root, target_repos=["pallets/flask"], target_methods=["bm25"])
+            self.assertGreaterEqual(status["summary"]["n_in_progress"], 1)
+            # Total and done counts should be correct
+            self.assertEqual(status["summary"]["n_total"], 1)
+            self.assertEqual(status["summary"]["n_done"], 0)
+
+    def test_load_campaign_state_returns_step_statuses(self):
+        from src.patch_dashboard import load_campaign_state
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            campaigns_dir = Path(tmpdir)
+            state = {
+                "campaign_name": "v2_full",
+                "updated_at": "2026-02-25T16:00:00",
+                "steps": [
+                    {"name": "t0_pass1", "description": "T0 pass 1", "status": "done",
+                     "started_at": "2026-02-25T10:00:00", "completed_at": "2026-02-25T11:30:00", "elapsed_s": 5400},
+                    {"name": "t0_pass2", "description": "T0 pass 2", "status": "running",
+                     "started_at": "2026-02-25T11:30:00", "completed_at": None, "elapsed_s": None},
+                    {"name": "t1_patch", "description": "Patching", "status": "pending",
+                     "started_at": None, "completed_at": None, "elapsed_s": None},
+                ],
+            }
+            (campaigns_dir / "v2_full_state.json").write_text(json.dumps(state), encoding="utf-8")
+
+            campaigns = load_campaign_state(campaigns_dir)
+            self.assertEqual(len(campaigns), 1)
+            self.assertEqual(campaigns[0]["campaign_name"], "v2_full")
+            steps = campaigns[0]["steps"]
+            self.assertEqual(len(steps), 3)
+            self.assertEqual(steps[0]["status"], "done")
+            self.assertEqual(steps[1]["status"], "running")
+            self.assertEqual(steps[2]["status"], "pending")
+
+
 if __name__ == "__main__":
     unittest.main()
