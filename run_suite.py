@@ -12,7 +12,9 @@ import argparse
 import json
 import shutil
 import sys
+import threading
 import time
+from collections import defaultdict, deque
 from pathlib import Path
 
 import yaml
@@ -249,6 +251,16 @@ def _write_repeat_aggregate(
     return output_path
 
 
+def _group_by_repo(
+    experiments: list[tuple[int, dict]],
+) -> dict[str, list[tuple[int, dict]]]:
+    """Group experiments by repo name, preserving order within each group."""
+    groups: dict[str, list[tuple[int, dict]]] = defaultdict(list)
+    for idx, exp in experiments:
+        groups[exp["repo"]].append((idx, exp))
+    return dict(groups)
+
+
 def main():
     load_dotenv()
 
@@ -257,6 +269,13 @@ def main():
     parser.add_argument("--results-dir", default="results", help="Results directory (default: results/)")
     parser.add_argument("--dry-run", action="store_true", help="Print experiment plan without running")
     parser.add_argument("--only", type=str, default=None, help="Comma-separated indices of experiments to run (e.g. 0,2)")
+    parser.add_argument(
+        "--max-parallel",
+        type=int,
+        default=1,
+        help="Max repos to run concurrently (default: 1 = sequential). "
+        "Experiments on the same repo always run sequentially to avoid git contention.",
+    )
     args = parser.parse_args()
 
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -306,62 +325,99 @@ def main():
     shutil.copy2(args.config, config_copy)
 
     # Run experiments
+    max_parallel = max(1, args.max_parallel)
     print(f"\n{'='*70}")
-    summaries = []
+    if max_parallel > 1:
+        print(f"Parallel mode: up to {max_parallel} repos concurrently")
+    summaries: list[dict] = []
     total_attempted_runs = 0
     successful_runs = 0
     successful_experiments = 0
-    for idx, (i, exp) in enumerate(experiments_to_run):
-        print(f"\n{'='*70}")
-        print(f"EXPERIMENT {idx+1}/{len(experiments_to_run)}  [{i}] {exp['repo']}")
-        print(f"{'='*70}")
+    lock = threading.Lock()
 
-        repeats = max(int(exp.get("repeats", 1) or 1), 1)
-        repeat_summaries: list[dict] = []
-        for repeat_idx in range(repeats):
-            total_attempted_runs += 1
-            if repeats > 1:
-                print(f"\n  Repeat {repeat_idx + 1}/{repeats}")
-            t0 = time.time()
-            try:
-                summary = run_single(
-                    exp,
-                    api_key,
-                    args.results_dir,
-                    repeat_count=repeats,
-                    repeat_index=repeat_idx + 1,
-                )
-                elapsed = time.time() - t0
-                if summary:
-                    summaries.append(summary)
-                    successful_runs += 1
-                    repeat_summaries.append(summary)
-                    gm_d = summary.get("gm_deterministic", {}).get("mean_f1", 0)
-                    gm_p = summary.get("gm_progressive", {}).get("mean_f1", 0)
-                    gm_b = summary.get("gm_baseline", {}).get("mean_f1", 0)
-                    rag_p = summary.get("rag_progressive", {}).get("mean_f1", 0)
-                    rag_b = summary.get("rag_baseline", {}).get("mean_f1", 0)
-                    print(
-                        f"    Completed in {elapsed:.0f}s — "
-                        f"GM(d)={gm_d:.3f} GM(p)={gm_p:.3f} GM(b)={gm_b:.3f} "
-                        f"RAG(p)={rag_p:.3f} RAG(b)={rag_b:.3f}"
+    def _run_experiment_group(group_exps: list[tuple[int, dict]]) -> None:
+        nonlocal total_attempted_runs, successful_runs, successful_experiments
+        for i, exp in group_exps:
+            with lock:
+                total_attempted_runs_local = total_attempted_runs
+            print(f"\n{'='*70}")
+            print(f"EXPERIMENT [{i}] {exp['repo']}")
+            print(f"{'='*70}")
+
+            repeats = max(int(exp.get("repeats", 1) or 1), 1)
+            repeat_summaries: list[dict] = []
+            for repeat_idx in range(repeats):
+                with lock:
+                    total_attempted_runs += 1
+                if repeats > 1:
+                    print(f"\n  Repeat {repeat_idx + 1}/{repeats}")
+                t0 = time.time()
+                try:
+                    summary = run_single(
+                        exp,
+                        api_key,
+                        args.results_dir,
+                        repeat_count=repeats,
+                        repeat_index=repeat_idx + 1,
                     )
-                else:
-                    print(f"    Completed in {elapsed:.0f}s — no summary returned")
-            except Exception as e:
-                elapsed = time.time() - t0
-                print(f"    FAILED after {elapsed:.0f}s: {e}")
+                    elapsed = time.time() - t0
+                    if summary:
+                        with lock:
+                            summaries.append(summary)
+                            successful_runs += 1
+                        repeat_summaries.append(summary)
+                        gm_d = summary.get("gm_deterministic", {}).get("mean_f1", 0)
+                        gm_p = summary.get("gm_progressive", {}).get("mean_f1", 0)
+                        gm_b = summary.get("gm_baseline", {}).get("mean_f1", 0)
+                        rag_p = summary.get("rag_progressive", {}).get("mean_f1", 0)
+                        rag_b = summary.get("rag_baseline", {}).get("mean_f1", 0)
+                        print(
+                            f"    Completed in {elapsed:.0f}s — "
+                            f"GM(d)={gm_d:.3f} GM(p)={gm_p:.3f} GM(b)={gm_b:.3f} "
+                            f"RAG(p)={rag_p:.3f} RAG(b)={rag_b:.3f}"
+                        )
+                    else:
+                        print(f"    Completed in {elapsed:.0f}s — no summary returned")
+                except Exception as e:
+                    elapsed = time.time() - t0
+                    print(f"    FAILED after {elapsed:.0f}s: {e}")
 
-        if repeats > 1 and repeat_summaries:
-            repeat_path = _write_repeat_aggregate(
-                repeat_summaries,
-                exp,
-                results_dir=results_dir,
+            if repeats > 1 and repeat_summaries:
+                repeat_path = _write_repeat_aggregate(
+                    repeat_summaries,
+                    exp,
+                    results_dir=results_dir,
+                )
+                if repeat_path:
+                    print(f"  Repeat aggregate: {repeat_path}")
+            if repeat_summaries:
+                with lock:
+                    successful_experiments += 1
+
+    if max_parallel <= 1:
+        # Sequential path (original behavior)
+        _run_experiment_group(experiments_to_run)
+    else:
+        # Parallel path: group by repo, run repos concurrently
+        repo_groups = _group_by_repo(experiments_to_run)
+        print(f"Repos: {list(repo_groups.keys())}")
+        threads: list[threading.Thread] = []
+        for repo, group_exps in repo_groups.items():
+            t = threading.Thread(
+                target=_run_experiment_group,
+                args=(group_exps,),
+                daemon=True,
             )
-            if repeat_path:
-                print(f"  Repeat aggregate: {repeat_path}")
-        if repeat_summaries:
-            successful_experiments += 1
+            threads.append(t)
+            t.start()
+            # Stagger starts to avoid burst API pressure
+            if len(threads) < len(repo_groups):
+                time.sleep(2.0)
+            # Limit active threads
+            while sum(1 for th in threads if th.is_alive()) >= max_parallel:
+                time.sleep(1.0)
+        for t in threads:
+            t.join()
 
     # Final summary
     print(f"\n{'='*70}")

@@ -103,6 +103,9 @@ make verify
 ./.venv/bin/python run_experiment.py --repo-name pallets/flask \
   --source-prefix src/flask --n-issues 10
 
+# Retrieval suite (parallel across repos)
+./.venv/bin/python run_suite.py experiments_retrieval_expansion_v2.yaml --max-parallel 3
+
 # Patching — Stage 1 only (no Docker needed)
 ./.venv/bin/python run_patch.py --manifest patch_manifests/v2_verified/pilot_oracle_v1.yaml
 

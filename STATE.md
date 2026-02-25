@@ -1,7 +1,7 @@
 # STATE.md -- Current project status
 
 Last updated: 2026-02-25
-Last agent: Claude (repo cleanup + retrieval expansion planning session)
+Last agent: Claude (concurrency optimization + handoff session)
 
 ---
 
@@ -34,11 +34,12 @@ Full scope: `RESEARCH_INTENT.md`. Permitted claims: `CLAIMS_LOCK.md`.
 - Retrieval expansion config: `experiments_retrieval_expansion_v2.yaml` (9 new repos from Verified)
 - Checkpoint/resume: `--resume` flag, `predictions_partial.jsonl`
 - Parallel stage 1: `--workers N`, isolated repo clones per worker
+- Parallel retrieval suite: `run_suite.py --max-parallel N` (repo-level concurrency)
 - Docker harness available locally (v28.4.0)
 - Dashboard: `tools/patch_dashboard.py` on port 5051
 - Run provenance: `run_meta.json` captures git SHA, manifest hash, dep versions
 - Makefile: `make verify` / `make test` / `make smoke` / `make lint`
-- 242 unit tests passing
+- 246 unit tests passing
 - Scientific rigor audit: PASSED (2026-02-25) — no confounds, fair baselines, standard SWE-bench harness
 
 ### V2 experiment runs (partial)

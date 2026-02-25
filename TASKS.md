@@ -103,6 +103,16 @@
 **Status:** `[BACKLOG]`
 **Notes:** Empty source_prefixes means the pipeline indexes the entire repo. Only 2 instances so low impact, but should be correct.
 
+### T9: Dashboard UI rewrite
+**Priority:** P3 (cosmetic)
+**Acceptance criteria:**
+- `tools/patch_dashboard.py` HTML/CSS/JS rewritten (extract from inline string)
+- Charts or visual progress indicators for campaign-level view
+- Data layer (`src/patch_dashboard.py`) unchanged
+**Owner:** unassigned
+**Status:** `[BACKLOG]`
+**Notes:** Current dashboard is functional but uses 450 lines of inline HTML. Data layer is already cleanly separated. Purely cosmetic — does not affect experiment correctness.
+
 ---
 
 ## Done
@@ -114,3 +124,4 @@
 | -- | Model tracking in evaluation.py | `model_name` parameter added | 2026-02-25 |
 | -- | Repo cleanup + all V2 work committed | PR #1 merged, 186 files, 242 tests pass | 2026-02-25 |
 | -- | Retrieval expansion config generated | `experiments_retrieval_expansion_v2.yaml` (9 repos, SWE-bench Verified) | 2026-02-25 |
+| -- | Parallel retrieval suite (`--max-parallel`) | `run_suite.py` + 4 tests, 246 total pass | 2026-02-25 |
