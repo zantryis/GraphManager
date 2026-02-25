@@ -1,0 +1,29 @@
+{
+  "dataset_name": "SWE-bench/SWE-bench_Verified",
+  "split": "test",
+  "repos": [
+    "psf/requests"
+  ],
+  "profiles": [
+    "repomap_base",
+    "agentless_full"
+  ],
+  "entries": [
+    {
+      "repo": "psf/requests",
+      "profile": "agentless_full",
+      "retrieval_method": "agentless_like_localization",
+      "manifest_path": "patch_manifests/v2_ablation_smoke/psf_requests_agentless_full_v1.yaml",
+      "manifest_sha256": "4021e9a038d77312141d316483558d38b4360878a6306056464d333e957c2ea6",
+      "n_instances": 8
+    },
+    {
+      "repo": "psf/requests",
+      "profile": "repomap_base",
+      "retrieval_method": "repomap_like",
+      "manifest_path": "patch_manifests/v2_ablation_smoke/psf_requests_repomap_base_v1.yaml",
+      "manifest_sha256": "cffddb24c6e59f5c0ef4390273f68740a84c279a2f869dbd766219a005ca4853",
+      "n_instances": 8
+    }
+  ]
+}

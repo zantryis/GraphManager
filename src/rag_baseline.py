@@ -59,6 +59,21 @@ RAG_TOOL_DECLARATION = {
     },
 }
 
+GET_FILE_CONTENTS_TOOL_DECLARATION = {
+    "name": "get_file_contents",
+    "description": "Read the full source of a specific file in the repository. Use this after search_codebase has identified a candidate file and you want to inspect its complete contents.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Relative path of the file within the repository (e.g. 'src/flask/app.py')",
+            }
+        },
+        "required": ["path"],
+    },
+}
+
 RAG_RETRIEVAL_MODES = {
     "baseline": {
         "search_top_k": 20,
@@ -343,6 +358,9 @@ class RAGAgent:
         gemini_client,
         model: str = "gemini-2.0-flash",
         retrieval_mode: str = "progressive",
+        repo_dir: str | None = None,
+        symmetric_tools: bool = False,
+        max_file_chars: int = 200_000,
     ):
         self.rag_index = rag_index
         self.client = gemini_client
@@ -356,6 +374,11 @@ class RAGAgent:
         self.cfg = RAG_RETRIEVAL_MODES[retrieval_mode]
         self._valid_files = {str(chunk.get("file", "")) for chunk in self.rag_index.chunks if chunk.get("file")}
         self._search_cache: dict[str, list[dict]] = {}
+        # Symmetric file-read tool (V2 rag_symmetric_tools feature).
+        # Requires repo_dir to be provided; silently disabled otherwise.
+        self.repo_dir = Path(repo_dir) if repo_dir else None
+        self.symmetric_tools = symmetric_tools and self.repo_dir is not None
+        self.max_file_chars = max_file_chars
 
     def find_relevant_files(self, issue_text: str, max_turns: int = 10) -> tuple[list[str], dict]:
         """Use Gemini with search_codebase tool to find relevant files."""
@@ -375,7 +398,10 @@ class RAGAgent:
         stagnant_turns = 0
         executed_tool_calls = 0
 
-        tools = types.Tool(function_declarations=[RAG_TOOL_DECLARATION])
+        tool_declarations = [RAG_TOOL_DECLARATION]
+        if self.symmetric_tools:
+            tool_declarations.append(GET_FILE_CONTENTS_TOOL_DECLARATION)
+        tools = types.Tool(function_declarations=tool_declarations)
         config = types.GenerateContentConfig(
             tools=[tools],
             system_instruction=RAG_AGENT_SYSTEM_PROMPT,
@@ -428,6 +454,28 @@ class RAGAgent:
             executed_calls = 0
 
             for fc in function_calls:
+                # --- get_file_contents (symmetric tool) ---
+                if fc.name == "get_file_contents":
+                    if executed_calls >= self.cfg["max_tool_calls_per_turn"]:
+                        results = {"tool_call_limit_reached": self.cfg["max_tool_calls_per_turn"]}
+                    else:
+                        path = str(fc.args.get("path", "")).strip()
+                        results = self._handle_get_file_contents(path, observed_files)
+                        turn_new_data = True  # reading a file surfaces new context
+                        executed_calls += 1
+                        executed_tool_calls += 1
+                    token_usage["tool_calls"] += 1
+                    token_usage["tool_calls_by_name"][fc.name] = token_usage["tool_calls_by_name"].get(fc.name, 0) + 1
+                    token_usage["tool_response_chars"] += len(str(results))
+                    response_parts.append(
+                        types.Part.from_function_response(
+                            name=fc.name,
+                            response={"result": results},
+                        )
+                    )
+                    continue
+
+                # --- search_codebase (primary tool) ---
                 query = str(fc.args.get("query", "")).strip()
                 norm_query = query.lower()
                 if norm_query in seen_turn_queries:
@@ -504,6 +552,45 @@ class RAGAgent:
                 file_scores,
             ), token_usage
         return [], token_usage
+
+    def _handle_get_file_contents(self, path: str, observed_files: set[str]) -> str:
+        """Read a file from the repo and return its contents (clipped to max_file_chars).
+
+        Returns an error string if repo_dir is unavailable, path is outside the repo,
+        or the file doesn't exist. Adds the resolved path to observed_files on success.
+        """
+        if not self.repo_dir:
+            return "Error: file reading is not available (repo_dir not set)"
+
+        try:
+            # Resolve the path relative to repo_dir and verify it stays inside
+            full_path = (self.repo_dir / path).resolve()
+            repo_root = self.repo_dir.resolve()
+            full_path.relative_to(repo_root)  # raises ValueError if outside
+        except ValueError:
+            return f"Error: path is outside the repository: {path}"
+
+        try:
+            content = full_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return f"Error: file not found or not readable: {path}"
+
+        if len(content) > self.max_file_chars:
+            content = content[: self.max_file_chars] + "\n... [truncated]"
+
+        # Add to observed_files so the agent can include it in the final answer
+        canonical = self._canonicalize_candidate_file(path)
+        if canonical:
+            observed_files.add(canonical)
+        else:
+            # Path not in index but readable — still track by relative path
+            try:
+                rel = str(full_path.relative_to(self.repo_dir.resolve()))
+                observed_files.add(rel)
+            except ValueError:
+                pass
+
+        return content
 
     def _parse_files_from_response(self, text: str) -> list[str]:
         """Extract file paths from the model's final response."""

@@ -201,11 +201,301 @@ class RetrievalMethodTests(unittest.TestCase):
             manager_model="unused",
             manager_max_turns=1,
             deterministic_config={},
+            repo_dir="/tmp/unused",
+            valid_file_paths={"requests/models.py", "requests/sessions.py"},
         )
 
-        self.assertEqual(files, ["requests/models.py", "docs/changelog.rst"])
+        self.assertEqual(files, ["requests/models.py"])
         self.assertEqual(tokens.get("total_tokens"), 0)
         self.assertEqual(tokens.get("stop_reason"), "oracle")
+
+    def test_run_retrieval_agentic_cold_start_is_supported(self):
+        from run_patch import _run_retrieval
+
+        with patch("src.agentic_cold_start.AgenticColdStartAgent") as agent_cls:
+            agent = agent_cls.return_value
+            agent.find_relevant_files.return_value = (
+                ["requests/models.py", "requests/sessions.py"],
+                {"total_tokens": 123, "stop_reason": "sufficient_confidence"},
+            )
+
+            files, tokens = _run_retrieval(
+                {"problem_statement": "issue text", "patch": ""},
+                graph=None,
+                graph_index=None,
+                rag_index=None,
+                bm25_index=None,
+                client=object(),
+                method="agentic_cold_start",
+                manager_model="gemini-test",
+                manager_max_turns=3,
+                deterministic_config={},
+                repo_dir="/tmp/repo",
+                include_prefixes=("requests",),
+                valid_file_paths={"requests/models.py", "requests/sessions.py"},
+            )
+
+        self.assertEqual(files, ["requests/models.py", "requests/sessions.py"])
+        self.assertEqual(tokens.get("total_tokens"), 123)
+        agent_cls.assert_called_once()
+
+    def test_run_retrieval_raw_rag_function_is_supported(self):
+        from run_patch import _run_retrieval
+
+        with patch("src.rag_baseline.RawRAG") as raw_cls:
+            raw_agent = raw_cls.return_value
+            raw_agent.find_relevant_files.return_value = (
+                ["requests/models.py", "requests/sessions.py"],
+                {"query_embedding_tokens": 12, "total_tokens": 0},
+            )
+
+            files, tokens = _run_retrieval(
+                {"problem_statement": "issue text", "patch": ""},
+                graph=None,
+                graph_index=None,
+                rag_index=object(),
+                bm25_index=None,
+                client=object(),
+                method="raw_rag_function",
+                manager_model="gemini-test",
+                manager_max_turns=3,
+                deterministic_config={},
+                repo_dir="/tmp/repo",
+                valid_file_paths={"requests/models.py", "requests/sessions.py"},
+            )
+
+        self.assertEqual(files, ["requests/models.py", "requests/sessions.py"])
+        self.assertEqual(tokens.get("query_embedding_tokens"), 12)
+        raw_cls.assert_called_once()
+
+    def test_run_retrieval_rag_baseline_is_supported(self):
+        from run_patch import _run_retrieval
+
+        with patch("src.rag_baseline.RAGAgent") as rag_cls:
+            rag_agent = rag_cls.return_value
+            rag_agent.find_relevant_files.return_value = (
+                ["requests/models.py"],
+                {"total_tokens": 77, "tool_calls": 2},
+            )
+
+            files, tokens = _run_retrieval(
+                {"problem_statement": "issue text", "patch": ""},
+                graph=None,
+                graph_index=None,
+                rag_index=object(),
+                bm25_index=None,
+                client=object(),
+                method="rag_baseline",
+                manager_model="gemini-test",
+                manager_max_turns=3,
+                deterministic_config={},
+                repo_dir="/tmp/repo",
+                valid_file_paths={"requests/models.py"},
+            )
+
+        self.assertEqual(files, ["requests/models.py"])
+        self.assertEqual(tokens.get("total_tokens"), 77)
+        rag_cls.assert_called_once()
+        self.assertEqual(rag_cls.call_args.kwargs.get("retrieval_mode"), "baseline")
+
+    def test_run_retrieval_repomap_like_is_supported(self):
+        from run_patch import _run_retrieval
+
+        with patch("src.repomap_like.RepoMapLikeRetriever") as retriever_cls:
+            retriever = retriever_cls.return_value
+            retriever.find_relevant_files.return_value = (
+                ["requests/models.py"],
+                {"total_tokens": 0, "repomap_meta": {"map_tokens_used": 100}},
+            )
+            files, tokens = _run_retrieval(
+                {"problem_statement": "issue text", "patch": ""},
+                graph=self._make_graph(),
+                graph_index=None,
+                rag_index=None,
+                bm25_index=None,
+                client=object(),
+                method="repomap_like",
+                manager_model="gemini-test",
+                manager_max_turns=3,
+                deterministic_config={},
+                repo_dir="/tmp/repo",
+                valid_file_paths={"requests/models.py"},
+                repomap_config={"top_k_files": 1},
+            )
+
+        self.assertEqual(files, ["requests/models.py"])
+        self.assertEqual(tokens.get("total_tokens"), 0)
+        retriever_cls.assert_called_once()
+
+    def test_run_retrieval_agentless_like_is_supported(self):
+        from run_patch import _run_retrieval
+
+        with patch("src.agentless_like_localization.AgentlessLikeLocalizer") as retriever_cls:
+            retriever = retriever_cls.return_value
+            retriever.find_relevant_files.return_value = (
+                ["requests/models.py", "requests/sessions.py"],
+                {"total_tokens": 99, "agentless_like_meta": {"stage1_candidate_pool_size": 10}},
+            )
+            files, tokens = _run_retrieval(
+                {"problem_statement": "issue text", "patch": ""},
+                graph=self._make_graph(),
+                graph_index=None,
+                rag_index=object(),
+                bm25_index=None,
+                client=object(),
+                method="agentless_like_localization",
+                manager_model="gemini-test",
+                manager_max_turns=3,
+                deterministic_config={},
+                repo_dir="/tmp/repo",
+                valid_file_paths={"requests/models.py", "requests/sessions.py"},
+                agentless_like_config={"stage2_enabled": False},
+            )
+
+        self.assertEqual(files, ["requests/models.py", "requests/sessions.py"])
+        self.assertEqual(tokens.get("total_tokens"), 99)
+        retriever_cls.assert_called_once()
+
+
+class RetrievalFileCapTests(unittest.TestCase):
+    def test_cap_retrieved_files_applies_global_limit(self):
+        from run_patch import _cap_retrieved_files
+
+        files = [f"pkg/f{i}.py" for i in range(10)]
+        capped, pre_count, post_count = _cap_retrieved_files(files, max_files=6)
+
+        self.assertEqual(pre_count, 10)
+        self.assertEqual(post_count, 6)
+        self.assertEqual(capped, [f"pkg/f{i}.py" for i in range(6)])
+
+    def test_cap_retrieved_files_none_disables_cap(self):
+        from run_patch import _cap_retrieved_files
+
+        files = [f"pkg/f{i}.py" for i in range(10)]
+        capped, pre_count, post_count = _cap_retrieved_files(files, max_files=None)
+
+        self.assertEqual(pre_count, 10)
+        self.assertEqual(post_count, 10)
+        self.assertEqual(capped, files)
+
+
+class HarnessRunIdTests(unittest.TestCase):
+    def test_build_harness_run_id_is_deterministic(self):
+        from run_patch import _build_harness_run_id
+
+        run_id_1 = _build_harness_run_id(
+            run_id="20260224_010101",
+            retrieval_method="gm_progressive",
+            results_path=Path("/tmp/run_a"),
+        )
+        run_id_2 = _build_harness_run_id(
+            run_id="20260224_010101",
+            retrieval_method="gm_progressive",
+            results_path=Path("/tmp/run_a"),
+        )
+        self.assertEqual(run_id_1, run_id_2)
+
+    def test_build_harness_run_id_separates_methods(self):
+        from run_patch import _build_harness_run_id
+
+        gm = _build_harness_run_id(
+            run_id="20260224_010101",
+            retrieval_method="gm_progressive",
+            results_path=Path("/tmp/run_a"),
+        )
+        bm25 = _build_harness_run_id(
+            run_id="20260224_010101",
+            retrieval_method="bm25",
+            results_path=Path("/tmp/run_a"),
+        )
+        self.assertNotEqual(gm, bm25)
+
+    def test_build_harness_run_id_separates_results_paths(self):
+        from run_patch import _build_harness_run_id
+
+        first = _build_harness_run_id(
+            run_id="20260224_010101",
+            retrieval_method="gm_progressive",
+            results_path=Path("/tmp/run_a"),
+        )
+        second = _build_harness_run_id(
+            run_id="20260224_010101",
+            retrieval_method="gm_progressive",
+            results_path=Path("/tmp/run_b"),
+        )
+        self.assertNotEqual(first, second)
+
+    def test_build_harness_run_id_honors_existing_value(self):
+        from run_patch import _build_harness_run_id
+
+        existing = "graphmanager_existing_123"
+        run_id = _build_harness_run_id(
+            run_id="20260224_010101",
+            retrieval_method="gm_progressive",
+            results_path=Path("/tmp/run_a"),
+            existing_harness_run_id=existing,
+        )
+        self.assertEqual(run_id, existing)
+
+
+class RunOutputDirAllocationTests(unittest.TestCase):
+    def test_allocate_run_output_dir_uses_timestamp_when_available(self):
+        from run_patch import _allocate_run_output_dir
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("run_patch.time.strftime", return_value="20260224_123000"):
+                run_id, run_path = _allocate_run_output_dir(tmpdir)
+
+            self.assertEqual(run_id, "20260224_123000")
+            self.assertTrue(run_path.exists())
+            self.assertEqual(run_path.name, "20260224_123000")
+
+    def test_allocate_run_output_dir_suffixes_on_collision(self):
+        from run_patch import _allocate_run_output_dir
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            patch_root = Path(tmpdir) / "patch_runs"
+            patch_root.mkdir(parents=True, exist_ok=True)
+            (patch_root / "20260224_123000").mkdir()
+            (patch_root / "20260224_123000_01").mkdir()
+
+            with patch("run_patch.time.strftime", return_value="20260224_123000"):
+                run_id, run_path = _allocate_run_output_dir(tmpdir)
+
+            self.assertEqual(run_id, "20260224_123000_02")
+            self.assertTrue(run_path.exists())
+            self.assertEqual(run_path.name, "20260224_123000_02")
+
+    def test_allocate_run_output_dir_retries_when_mkdir_races(self):
+        from run_patch import _allocate_run_output_dir
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_mkdir = Path.mkdir
+            race_triggered = {"value": False}
+
+            def flaky_mkdir(path_obj, *args, **kwargs):
+                if (
+                    not race_triggered["value"]
+                    and path_obj.name == "20260224_123000"
+                    and path_obj.parent.name == "patch_runs"
+                    and kwargs.get("exist_ok") is False
+                ):
+                    race_triggered["value"] = True
+                    raise FileExistsError("simulated concurrent mkdir race")
+                return original_mkdir(path_obj, *args, **kwargs)
+
+            with patch("run_patch.time.strftime", return_value="20260224_123000"), patch(
+                "pathlib.Path.mkdir",
+                autospec=True,
+                side_effect=flaky_mkdir,
+            ):
+                run_id, run_path = _allocate_run_output_dir(tmpdir)
+
+            self.assertTrue(race_triggered["value"])
+            self.assertNotEqual(run_id, "20260224_123000")
+            self.assertTrue(run_id.startswith("20260224_123000_"))
+            self.assertTrue(run_path.exists())
+            self.assertEqual(run_path.name, run_id)
 
 
 class MethodScopedIndexBuildTests(unittest.TestCase):
@@ -347,6 +637,57 @@ class MethodScopedIndexBuildTests(unittest.TestCase):
         self.assertEqual(self._FakeGraphBuilder.build_calls, 0)
         self.assertEqual(self._FakeGraphIndex.build_calls, 0)
         self.assertEqual(self._FakeRAGIndex.build_calls, 0)
+
+    def test_method_scoped_context_repomap_builds_graph_without_index(self):
+        from run_patch import _build_method_scoped_commit_context
+
+        context = _build_method_scoped_commit_context(
+            retrieval_method="repomap_like",
+            repo_dir="/tmp/repo",
+            prefixes=("requests",),
+            client=object(),
+            graph_builder_cls=self._FakeGraphBuilder,
+            graph_index_cls=self._FakeGraphIndex,
+            rag_index_cls=self._FakeRAGIndex,
+            validate_commit_context_fn=lambda _ctx, required_methods=None: None,
+        )
+
+        self.assertEqual(self._FakeGraphBuilder.build_calls, 1)
+        self.assertEqual(self._FakeGraphIndex.build_calls, 0)
+        self.assertEqual(self._FakeRAGIndex.build_calls, 0)
+        self.assertIsNotNone(context["graph"])
+        self.assertIsNone(context["graph_index"])
+        self.assertEqual(context["retrieval_setup_tokens"], 0)
+        self.assertEqual(context["setup_tokens_method_accounted"], 0)
+
+    def test_method_scoped_context_agentless_builds_graph_and_rag(self):
+        from run_patch import _build_method_scoped_commit_context
+
+        validated = {"count": 0}
+
+        def validate_fn(_context, required_methods=None):
+            validated["count"] += 1
+            self.assertEqual(required_methods, ("rag_progressive",))
+
+        context = _build_method_scoped_commit_context(
+            retrieval_method="agentless_like_localization",
+            repo_dir="/tmp/repo",
+            prefixes=("requests",),
+            client=object(),
+            graph_builder_cls=self._FakeGraphBuilder,
+            graph_index_cls=self._FakeGraphIndex,
+            rag_index_cls=self._FakeRAGIndex,
+            validate_commit_context_fn=validate_fn,
+        )
+
+        self.assertEqual(self._FakeGraphBuilder.build_calls, 1)
+        self.assertEqual(self._FakeGraphIndex.build_calls, 0)
+        self.assertEqual(self._FakeRAGIndex.build_calls, 1)
+        self.assertIsNotNone(context["graph"])
+        self.assertIsNotNone(context["rag_index"])
+        self.assertEqual(context["retrieval_setup_tokens"], 222)
+        self.assertEqual(context["setup_tokens_rag_built"], 222)
+        self.assertEqual(validated["count"], 1)
 
 
 class ModelSelectionTests(unittest.TestCase):
@@ -682,9 +1023,19 @@ class CommitCheckoutSelectionTests(unittest.TestCase):
     class _FakeGit:
         def __init__(self):
             self.checkouts = []
+            self.fetches = []
+            self._checkout_failures = []
+
+        def queue_checkout_failure(self, exc: Exception):
+            self._checkout_failures.append(exc)
 
         def checkout(self, commit, force=False):
+            if self._checkout_failures:
+                raise self._checkout_failures.pop(0)
             self.checkouts.append((commit, force))
+
+        def fetch(self, *args):
+            self.fetches.append(args)
 
     class _FakeRepo:
         def __init__(self):
@@ -713,6 +1064,40 @@ class CommitCheckoutSelectionTests(unittest.TestCase):
             fake_repo.git.checkouts,
             [("abc111", True), ("def222", True), ("abc111", True)],
         )
+
+    def test_checkout_issue_commit_fetches_missing_commit_then_retries(self):
+        from run_patch import _checkout_issue_commit
+
+        fake_repo = self._FakeRepo()
+        fake_repo.git.queue_checkout_failure(RuntimeError("fatal: reference is not a tree: deadbeef"))
+
+        current_commit = _checkout_issue_commit(
+            repo_git=fake_repo,
+            snapshot_commit=None,
+            issue={"instance_id": "i1", "base_commit": "deadbeef"},
+            current_commit=None,
+        )
+
+        self.assertEqual(current_commit, "deadbeef")
+        self.assertEqual(fake_repo.git.fetches, [("origin", "deadbeef")])
+        self.assertEqual(fake_repo.git.checkouts, [("deadbeef", True)])
+
+    def test_checkout_issue_commit_raises_on_non_missing_ref_errors(self):
+        from run_patch import _checkout_issue_commit
+
+        fake_repo = self._FakeRepo()
+        fake_repo.git.queue_checkout_failure(RuntimeError("fatal: detached HEAD"))
+
+        with self.assertRaises(RuntimeError):
+            _checkout_issue_commit(
+                repo_git=fake_repo,
+                snapshot_commit=None,
+                issue={"instance_id": "i1", "base_commit": "abc111"},
+                current_commit=None,
+            )
+
+        self.assertEqual(fake_repo.git.fetches, [])
+        self.assertEqual(fake_repo.git.checkouts, [])
 
 
 if __name__ == "__main__":

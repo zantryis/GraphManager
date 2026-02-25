@@ -31,6 +31,9 @@ ALL_METHODS = [
     "rag_baseline",
     "raw_rag_function",
     "raw_rag_fixed",
+    "bm25",
+    "repomap_like",
+    "agentless_like_localization",
 ]
 
 

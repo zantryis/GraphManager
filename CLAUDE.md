@@ -2,24 +2,23 @@
 
 ## Start of every session
 
-Read these two files before doing anything else:
+Read these files in order before doing anything else:
 
-1. `CURRENT_STATE.md` — what workstream you are on, what is done, what the next action is, known bugs
-2. `RESEARCH_INTENT.md` — the paper scope, claims, and what NOT to build
+1. `STATE.md` — what is done, what is next, known risks
+2. `TASKS.md` — task backlog; find your assigned task
+3. `RESEARCH_INTENT.md` — paper scope, claims, what NOT to build
+4. `CLAIMS_LOCK.md` — permitted claim strength
 
-If these files contradict each other, `RESEARCH_INTENT.md` wins on scope decisions;
-`CURRENT_STATE.md` wins on execution state.
+If STATE.md and RESEARCH_INTENT.md conflict: RESEARCH_INTENT.md wins on scope;
+STATE.md wins on execution status.
+
+Run `make verify` before touching any code.
 
 ## End of every session
 
-Update `CURRENT_STATE.md`:
-- Mark completed tasks done
-- Record run IDs and key metrics (apply_success_rate, n_resolved, F1, cost)
-- Update bug fix status if you fixed something
-- Update "Next action" for the workstream you touched
-
-Write a dev log entry in `dev_logs/YYYY-MM-DD-<short-slug>.md` for any non-trivial
-change. Use `dev_logs/TEMPLATE.md` for the structure.
+1. Update `STATE.md`: mark completed items, record run IDs / metrics, update "Next action"
+2. Update `TASKS.md`: mark your task `[DONE]` if acceptance criteria are met
+3. Write a dev log in `dev_logs/YYYY-MM-DD-<slug>.md` for non-trivial changes
 
 ---
 
@@ -28,34 +27,29 @@ change. Use `dev_logs/TEMPLATE.md` for the structure.
 ### TDD for all behavior changes
 1. Write a failing test that captures the intended behavior.
 2. Implement the minimal fix.
-3. Run the full test suite: `./.venv/bin/python -m unittest discover -s tests -v`
+3. Run the full test suite: `make test`
 4. All tests must pass before committing.
 
 Do not skip tests because "it's a small change." The patch pipeline has had multiple
 silent regressions from untested changes.
 
-### One workstream at a time
-Workstreams A (retrieval eval), B (patching pipeline), and C (paper writing) are
-intentionally separate. Do not touch A's files while working on B, and vice versa.
-Check `CURRENT_STATE.md` to confirm which workstream you are assigned.
+### One task at a time
+Find the single `[ACTIVE]` task in TASKS.md. Work only on that.
+Do not self-assign tasks. Only the researcher promotes tasks to `[ACTIVE]`.
 
-### Workstream status rules
-- `[ACTIVE]` — in flight. Work here.
-- `[DONE]` — all goals met. You may mark a workstream done if verifiably complete.
-- `[ARCHIVED]` — retired. Do not resurrect.
-- You may **NOT** create new workstreams or change status to `[ACTIVE]`. Only the researcher does that.
-- If you notice a new task or problem, append it to the **Parking Lot** section of `CURRENT_STATE.md` and stop. Do not act on it unless your prompt explicitly assigns it.
+If you notice a new task or problem, append it to the **Parking Lot** section of
+`STATE.md` and stop. Do not act on it unless your prompt explicitly assigns it.
 
 ### Do not re-run valid experiments
 Retrieval experiment cells that already have valid results are frozen. Do not
-re-run them. Check `CURRENT_STATE.md` → Workstream A status before running anything.
+re-run them. Check `STATE.md` before running anything.
 
 ### Reproduce before expanding
 For patching: run on 8 instances (requests manifest) and confirm numbers make sense
 before expanding to 30 instances across 3 repos. Never expand a broken pipeline.
 
 ### Commit hygiene
-- Never commit `*_repo/` directories or `results/` (both gitignored — keep it that way)
+- Never commit `*_repo/` directories, `results/`, or `graphmanager-*.json` (all gitignored)
 - Commit manifests and code; never commit raw API outputs or model responses
 - Commit message format: short imperative title + blank line + what changed and why
 
@@ -71,45 +65,56 @@ Read `RESEARCH_INTENT.md`. Paper 1 has a defined scope. Do not:
 ## Project Layout
 
 ```
-run_experiment.py         retrieval evaluation runner
-run_suite.py              multi-repo suite runner
-run_patch.py              patching pipeline runner
+run_experiment.py           retrieval evaluation runner
+run_suite.py                multi-repo suite runner
+run_patch.py                patching pipeline runner
 src/
-  manager_agent.py        graph-guided retrieval agent
-  rag_baseline.py         RAG retrieval baseline
-  graph_builder.py        AST graph construction (tree-sitter)
-  evaluation.py           metrics, dataset loading, commit checkout
-  patch_agent.py          patch generation agent
-  deterministic_retrieval.py  zero-LLM-runtime retrieval scorer
-patch_manifests/          YAML manifests for patch runs
+  manager_agent.py          graph-guided retrieval agent
+  rag_baseline.py           RAG retrieval baseline (+ symmetric tools)
+  graph_builder.py          AST graph construction (tree-sitter)
+  evaluation.py             metrics, dataset loading, commit checkout
+  patch_agent.py            patch generation agent
+  bm25_baseline.py          BM25Plus file-level retrieval
+  agentic_cold_start.py     agent with filesystem tools, no index
+  repomap_like.py           PageRank on file-level graph
+  agentless_like_localization.py  3-stage hierarchical localization
+  deterministic_retrieval.py     zero-LLM-runtime retrieval scorer
+tools/
+  run_manifest_pool.py      parallel manifest pool runner
+  patch_dashboard.py        web dashboard for run monitoring
+patch_manifests/            YAML manifests for patch runs
+  v2_verified/              V2 campaign manifests (12 repos x 8 methods)
 experiments_matrix_v2.yaml  retrieval experiment matrix
-tests/                    unit tests (run before every commit)
-research_report/          LaTeX paper draft
-dev_logs/                 decision logs (one file per session/decision)
-results/                  gitignored — experiment outputs
+tests/                      unit tests (run before every commit)
+research_report/            LaTeX paper draft
+dev_logs/                   decision logs (one file per session/decision)
+docs/                       design docs and reference material
+  archive/                  superseded planning docs (read-only)
+results/                    gitignored — experiment outputs
 ```
 
 ## Key commands
 
 ```bash
+# Health check (must pass before any work)
+make verify
+
 # Retrieval experiment (single repo)
 ./.venv/bin/python run_experiment.py --repo-name pallets/flask \
-  --source-prefix src/flask --n-issues 10 --manager-max-turns 6 --rag-max-turns 6
+  --source-prefix src/flask --n-issues 10
 
-# Patching run — Stage 1: generate patches only (no Docker needed)
-./.venv/bin/python run_patch.py --manifest patch_manifests/swebench_verified_requests_v1.yaml
+# Patching — Stage 1 only (no Docker needed)
+./.venv/bin/python run_patch.py --manifest patch_manifests/v2_verified/pilot_oracle_v1.yaml
 
-# Patching run — Stage 1 + 2 combined (Docker or Modal)
-./.venv/bin/python run_patch.py --manifest patch_manifests/swebench_verified_requests_v1.yaml \
-  --evaluate [--modal]
+# Patching — Stage 1+2 (requires Docker or --modal)
+./.venv/bin/python run_patch.py --manifest patch_manifests/v2_verified/pilot_oracle_v1.yaml \
+  --evaluate --modal
 
-# Patching run — Stage 2 only: evaluate an existing predictions.json
-./.venv/bin/python run_patch.py --manifest patch_manifests/swebench_verified_requests_v1.yaml \
-  --evaluate-only --run-dir results/patch_runs/<run_id> [--modal]
+# Batch pool (parallel across repos)
+./.venv/bin/python tools/run_manifest_pool.py \
+  --manifest-list <list.txt> --results-dir results/v2_full_runs \
+  --max-parallel-repos 8 --resume-incomplete
 
 # Full test suite
-./.venv/bin/python -m unittest discover -s tests -v
-
-# Visualize retrieval results
-./.venv/bin/python visualize_results.py
+make test
 ```

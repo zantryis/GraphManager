@@ -195,6 +195,19 @@ class PatchAgentFileReadingTests(unittest.TestCase):
         self.assertEqual(tokens["files_provided"], 0)
         client.models.generate_content.assert_called_once()
 
+    def test_rejects_path_outside_repo_root(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sandbox_root = Path(tmpdir)
+            repo = sandbox_root / "repo"
+            repo.mkdir()
+            outside = sandbox_root / "secret.py"
+            outside.write_text("TOP_SECRET = 1\n", encoding="utf-8")
+
+            agent = PatchAgent(str(repo), client=MagicMock())
+            contents = agent._build_file_contents(["../secret.py"])
+
+        self.assertEqual(contents, {})
+
 
 class PatchAgentGenerationTests(unittest.TestCase):
     def _make_mock_response(self, text: str, prompt_tokens: int = 100, candidate_tokens: int = 50):

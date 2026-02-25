@@ -1,7 +1,10 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from src.evaluation import (
     ALL_METHODS,
+    _copy_run_artifacts,
     aggregate_results,
     build_issue_groups,
     compute_metrics,
@@ -377,6 +380,8 @@ Traceback (most recent call last):
 
     def test_all_methods_includes_deterministic_mode(self):
         self.assertIn("gm_deterministic", ALL_METHODS)
+        self.assertIn("repomap_like", ALL_METHODS)
+        self.assertIn("agentless_like_localization", ALL_METHODS)
 
     # ------------------------------------------------------------------ #
     # compute_metrics                                                       #
@@ -416,6 +421,7 @@ Traceback (most recent call last):
     def test_validate_commit_context_passes_on_valid_context(self):
         context = {
             "graph_file_paths": {"some/file.py"},
+            "bm25_file_paths": {"some/file.py"},
             "setup_costs": self._valid_setup_costs(200),
         }
         validate_commit_context(context)  # must not raise
@@ -438,6 +444,7 @@ Traceback (most recent call last):
         setup_costs["rag_progressive"]["embedding_tokens"] = 0
         setup_costs["rag_baseline"]["embedding_tokens"] = 0
         setup_costs["raw_rag_function"]["embedding_tokens"] = 0
+        setup_costs["agentless_like_localization"]["embedding_tokens"] = 0
         context = {
             "graph_file_paths": {"some/file.py"},
             "setup_costs": setup_costs,
@@ -492,6 +499,59 @@ Traceback (most recent call last):
                 context,
                 required_methods=("gm_deterministic",),
             )
+
+    def test_validate_commit_context_repomap_allows_zero_embedding_tokens(self):
+        setup_costs = self._valid_setup_costs(0)
+        context = {
+            "graph_file_paths": {"some/file.py"},
+            "setup_costs": setup_costs,
+        }
+        validate_commit_context(
+            context,
+            required_methods=("repomap_like",),
+        )
+
+    def test_copy_run_artifacts_skips_missing_graph(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            run_path = root / "runs" / "run1"
+            run_path.mkdir(parents=True)
+            base_results = root / "results"
+            base_results.mkdir(parents=True)
+
+            (run_path / "detailed_results.json").write_text("{}", encoding="utf-8")
+            (run_path / "summary.json").write_text("{}", encoding="utf-8")
+
+            _copy_run_artifacts(
+                run_path=run_path,
+                base_results_path=base_results,
+                create_run_subdir=True,
+            )
+
+            self.assertTrue((base_results / "latest" / "summary.json").exists())
+            self.assertTrue((base_results / "latest" / "detailed_results.json").exists())
+            self.assertFalse((base_results / "latest" / "graph.json").exists())
+
+    def test_copy_run_artifacts_copies_graph_when_present(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            run_path = root / "runs" / "run1"
+            run_path.mkdir(parents=True)
+            base_results = root / "results"
+            base_results.mkdir(parents=True)
+
+            (run_path / "graph.json").write_text("{}", encoding="utf-8")
+            (run_path / "detailed_results.json").write_text("{}", encoding="utf-8")
+            (run_path / "summary.json").write_text("{}", encoding="utf-8")
+
+            _copy_run_artifacts(
+                run_path=run_path,
+                base_results_path=base_results,
+                create_run_subdir=True,
+            )
+
+            self.assertTrue((base_results / "latest" / "graph.json").exists())
+            self.assertTrue((base_results / "graph.json").exists())
 
 
 if __name__ == "__main__":

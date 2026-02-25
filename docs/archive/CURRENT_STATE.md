@@ -10,8 +10,8 @@ RULES FOR AGENTS:
 - You may mark a workstream [DONE] if all its goals are verifiably met.
 -->
 
-Last updated: 2026-02-22
-Last agent: Claude Sonnet 4.6 (paper complete — all retrieval cells filled)
+Last updated: 2026-02-24
+Last agent: Codex (8-method matrix correction + resumed local stage1 pool)
 
 ---
 
@@ -206,6 +206,105 @@ Commands:
 - Patch model/file context: `gemini-3-flash-preview`, `patch_max_file_chars=200000`, `patch_max_output_tokens=65536`
 - Path redaction policy: retrieval redaction on, patch redaction off
 
+**Dashboard monitoring updates (2026-02-24):**
+- `src/patch_dashboard.py` dedupe now prefers freshest manifest attempt by `last_seen_ts`
+  (prevents old completed/stale attempts from masking new in-flight retries).
+- `tools/patch_dashboard.py` active-only defaults remain on, with explicit manifest/repo/run columns.
+- Dashboard regression tests expanded in `tests/test_patch_dashboard.py` (active-only stale filter +
+  newer attempt replacing older complete attempt).
+- Dashboard UI refreshed with method-grouped collapsible sections and clearer per-row phase hints
+  (`setup/queued` vs stale attempts) in `tools/patch_dashboard.py`.
+- `run_patch.py` now writes `pid` into `run_meta.json`; dashboard status logic uses PID liveness
+  (when available) and stale-age guards to reduce false `not_started` rows.
+- Dashboard top-level stats now include overall `patched / total issues` across visible runs
+  (computed from deduped, filter-scoped rows; wired through `/api/status` summary payload).
+- Stage-1 parallel progress now includes worker checkpoint files
+  (`predictions_worker_*.jsonl`) for status/progress/staleness accounting.
+- Dashboard run discovery now prunes deep artifact traversal (notably `patch_runs/*/_repos/*`)
+  to prevent `/api/status` timeouts after run-scoped clone isolation.
+
+**Parallel stage-1 hardening (2026-02-24):**
+- `run_patch.py --workers N` now runs issue-level parallel stage-1 with per-run isolated clone roots
+  (`results/patch_runs/<run_id>/_repos/*`) to avoid cross-manifest git-dir contention.
+- Resume/checkpoint merge is worker-aware (`predictions_partial.jsonl` + worker files), with
+  `predictions_partial.jsonl` taking precedence for duplicate instance IDs.
+- `tools/run_manifest_pool.py` now forwards issue-level parallelism via `--run-workers N`.
+
+**Queue status update (2026-02-24 09:52 local):**
+- Full-run pool `logs/v2_full_manifests_20260223_222457.txt` was **stopped intentionally**.
+- Reason: method-matrix mismatch discovered before completion:
+  - queued manifests were generated from a 4-method set (`oracle`, `gm_progressive`, `bm25`, `agentic_cold_start`);
+  - this does not match the later V2 baseline expansion direction (`gm_deterministic`, deterministic RAG, and planned `repomap_like` / `agentless_like_localization`).
+- Data already produced remains on disk (`results/v2_full_runs/patch_runs/*`) and is resumable, but is now treated as a partial 4-method run set pending matrix reconciliation.
+- Dashboard API/UI now separates denominator scopes to avoid misleading totals:
+  - `summary_visible`: filtered rows currently shown
+  - `summary_started`: all discovered started manifests under results root
+  - `summary_plan`: planned campaign totals from `--manifest-list` (e.g., 48 manifests / 2000 issues)
+  - dashboard cards now show `visible`, `started`, and `campaign planned` patched/total concurrently.
+
+**Queue status update (2026-02-24 10:05 local):**
+- V2 matrix reconciliation executed: manifests regenerated for an explicit 8-method full campaign
+  (`oracle`, `gm_progressive`, `rag_progressive`, `gm_deterministic`, `raw_rag_function`,
+  `raw_rag_fixed`, `bm25`, `agentic_cold_start`).
+- New campaign manifest list: `logs/v2_full_manifests_8method_20260224_100240.txt`
+  (`96` manifests / `4000` issue-method instances).
+- Full pool relaunched in resume mode (no manifest timeout, local stage1-only):
+  - command:
+    `./.venv/bin/python tools/run_manifest_pool.py --manifest-list logs/v2_full_manifests_8method_20260224_100240.txt --results-dir results/v2_full_runs --max-parallel-repos 8 --manifest-timeout-s 0 --resume-incomplete --execution-mode local --evaluate-mode stage1_only --run-workers 2`
+  - active pool log: `logs/v2_repo_pool_20260224_100338.log`
+  - active dashboard (`127.0.0.1:5051`) now points at the corrected 96-manifest list.
+- Accounting/report artifact: `docs/V2_RUN_ACCOUNTING_AND_EXECUTION_2026-02-24.md`.
+
+**Baseline rebuild update (2026-02-24):**
+- Implemented new retrieval baselines:
+  - `repomap_like` (`src/repomap_like.py`)
+  - `agentless_like_localization` (`src/agentless_like_localization.py`)
+- Integrated into runtime dispatch and setup paths:
+  - `run_patch.py` now supports both methods in `_run_retrieval` and method-scoped context build.
+  - `src/evaluation.py` / `run_experiment.py` method catalogs updated to include both methods.
+- Added ablation-ready manifest knobs for both methods (manifest-driven, no code edits required per ablation).
+- Added ablation manifest generator:
+  - `tools/generate_v2_baseline_ablation_manifests.py`
+  - profile set includes map-budget, selector, personalization, stage-toggle, and branch ablations.
+- Validation:
+  - full unit suite passed: `240` tests (`./.venv/bin/python -m unittest discover -s tests -v`).
+- Implementation/report artifact:
+  - `docs/V2_NEW_BASELINES_IMPLEMENTATION_2026-02-24.md`
+
+**V2 timeout recovery operations (2026-02-24):**
+- Investigated stalled runs: root cause is manifest wall-clock timeout (`timeout rc=124`, 4200s).
+- Confirmed timeout manifests from logs:
+  - pool failures (`logs/v2_repo_pool_failures_20260223_225727.log`): 7 agentic timeouts
+    (`django`, `matplotlib`, `pydata/xarray`, `pytest`, `scikit-learn`, `sphinx`, `sympy`)
+  - watchdog failures (`logs/v2_full_failures_20260223_223555.log`): `astropy` agentic + `astropy` bm25
+- Recovery started:
+  - immediate resume reruns (10800s timeout) launched for free repos:
+    - `sympy_sympy_agentic_cold_start_v1.yaml` → run_dir `20260223_233317`
+    - `sphinx_doc_sphinx_agentic_cold_start_v1.yaml` → run_dir `20260223_231510`
+  - continuous stalled-run recovery daemon started:
+    - script: `/tmp/v2_stalled_resume_queue.py`
+    - process monitors dashboard stalled rows and resumes in-place when repo slot is free
+    - log: `logs/v2_stalled_resume_queue_20260224_005835.log`
+- Timeout policy change applied:
+  - `tools/run_manifest_pool.py` now supports `--manifest-timeout-s <= 0` (disabled) + `--resume-incomplete`.
+  - old timeout-based pool/watchdog/recovery workers were terminated to avoid duplicate/competing writes.
+  - full V2 pool relaunched in resume mode with no manifest timeout and 8-way repo concurrency:
+    - command: `./.venv/bin/python tools/run_manifest_pool.py --manifest-list logs/v2_full_manifests_20260223_222457.txt --results-dir results/v2_full_runs --max-parallel-repos 8 --manifest-timeout-s 0 --resume-incomplete`
+    - active log: `logs/v2_repo_pool_20260224_012417_no_manifest_timeout.log`
+    - behavior: per-manifest wall-clock cutoff removed; per-issue caps still enforced by manifest (`instance_wall_clock_cap_s`).
+- Modal credit fallback (2026-02-24):
+  - `tools/run_manifest_pool.py` now supports:
+    - `--execution-mode {modal,local}` (controls `--modal` flag to `run_patch.py`)
+    - `--evaluate-mode {stage12,stage1_only}` (full eval vs patch generation only)
+  - local Docker harness fallback is currently unavailable in this environment:
+    - `/var/run/docker.sock` missing
+    - rootless daemon attempt failed (`newuidmap` missing; no sudo provisioning in-session)
+  - active fallback execution switched to parallel stage1-only generation (no harness dependency):
+    - command:
+      `./.venv/bin/python tools/run_manifest_pool.py --manifest-list logs/v2_full_manifests_20260223_222457.txt --results-dir results/v2_full_runs --max-parallel-repos 8 --manifest-timeout-s 0 --resume-incomplete --execution-mode local --evaluate-mode stage1_only`
+    - active log: `logs/v2_repo_pool_20260224_083920_stage1_local.log`
+    - intent: continue patch generation now; run Stage 2 evaluation later when Modal credentials are restored.
+
 **Next actions (in order):**
 1. ✓ Phase 2 complete: all 9 `none` runs done.
 2. ✓ Phase 3 analysis refreshed via `tools/analyze_v4_handoff.py` (results in `results/analysis_v4_handoff/`).
@@ -272,6 +371,10 @@ Commands:
 | B8 | HIGH | extract_patch strips trailing \\n → patch/git-apply rejects | YES — patch_agent.py |
 | B9 | CRITICAL | gemini-3-flash-preview thinking tokens consume max_output_tokens budget → ~490 output tokens left → no patch extracted | YES — patch_max_output_tokens=65536 |
 | B10 | HIGH | `run_patch.py` dual-build path (graph + rag both built for GM/RAG runs) confounds as-run cost/runtime interpretation | YES — fixed in v4 Phase 1 (method-scoped build path + split setup fields) |
+| B11 | CRITICAL | PatchAgent file reads could traverse outside repo via `../` paths | YES — path containment guard in `_read_file` |
+| B12 | CRITICAL | V2 `agentic_cold_start` baseline aliased to `none` (invalid baseline semantics) | YES — implemented dedicated retrieval mode + manifest mapping fix |
+| B13 | HIGH | `run_experiment --methods <subset>` could crash copying missing `graph.json` | YES — artifact copy now conditional on file existence |
+| B14 | HIGH | V2 handoff/manifests drifted on pilot names and request counts | YES — corrected `v2_phase3_handoff.md` + manifest mapping |
 
 B7+B8 root-cause analysis: `dev_logs/2026-02-18-b7-b8-empty-patch-trailing-newline.md`
 Phase 0/1 details: `dev_logs/2026-02-18-pipeline-vulnerability-assessment.md`
@@ -304,36 +407,200 @@ Phase 0/1 details: `dev_logs/2026-02-18-pipeline-vulnerability-assessment.md`
 <!-- Agents: append observations and proposed tasks here. Do NOT self-promote to ACTIVE. -->
 <!-- Researcher: review this section and promote/discard items each session. -->
 
-## V2 AGENDA (next session — researcher to activate workstreams)
+## V2 AGENDA (researcher to activate workstreams)
 <!--
 V1 pilot is ARCHIVED as reference. Paper is reference-only. V2 starts fresh.
-Full plan: education/v2_next_session_plan.md
+Full plan: v2_next_session_plan.md
 Sequencing: Research → Engineering → New experiments → Audit → Full runs
 DO NOT skip to experiments without completing research phase first.
 -->
 
-**Phase 1 — Research (no code):**
-- Study Agentless localization pipeline: token cost, BM25 vs LLM re-rank, patch agent tool access
-- Study RepoMap (aider): graph vs flat summary, cost per repo, static vs dynamic
-- Resolve open design question: fixed-context patch agent (Option A) vs agentic file-tool patch agent (Option B)
-- Decision: comparison against published leaderboard numbers vs running their code
+**Phase 1 — Research: DONE (2026-02-23)**
+- Q1: Agentless — 3-stage hierarchical embedding+LLM, NO BM25, fixed-context patch, $0.70/instance
+- Q2: RepoMap — flat text output over file-level PageRank graph, dynamic per turn, ~1K tokens/turn
+- Q3: Patch agent tools — Option A (fixed-context) is correct for thesis isolation claim
+- Findings: `dev_logs/2026-02-23-v2-phase1-research.md`
 
-**Phase 2 — Engineering fixes (before new experiments):**
-- E1: Bump Modal harness `timeout=300 → 600` in `run_patch.py` `swebench_eval()` calls (15 min)
-- E2: Parallel Stage 1 — multiple repo clones + `--workers N` flag (1-2 days)
-- E3: Checkpoint/resume for Stage 1 — flush per-instance results to partial JSONL (4-6 hours)
-- E4: Investigate `max_workers` behavior with Modal (may be a no-op for Sandboxes)
+**Phase 2 — Engineering fixes: DONE (2026-02-23)**
+- ✓ E1: Modal harness timeout 300→600 (`run_patch.py` both call sites)
+- ✓ E4: `max_workers` is irrelevant for Modal path (confirmed; fixed misleading special-case)
+- ✓ E3: Checkpoint/resume (`_flush_instance_to_checkpoint`, `_load_partial_checkpoint`, `--resume`)
+- ~ E2: `--workers N` flag + `_distribute_instances` + `_merge_worker_predictions` scaffolded;
+       parallel execution engine (ThreadPoolExecutor + per-worker repo clones) NOT YET DONE — parked
+- 161 tests pass (was 143; +18 new checkpoint/distribute/merge tests)
+- Dev log: `dev_logs/2026-02-23-v2-phase2-engineering.md`
 
-**Phase 3 — New experiment design (after research):**
-- New baseline lineup: BM25 (Tier 0), gm_det, raw_rag, gm_prog, rag_prog (symmetric tools), agentic_cold_start, oracle
-- Replace `none` (empty context) with `agentic_cold_start` (agent with ls/cat/grep, no index)
-- Aligned eval populations: same 3 repos (Flask/Requests/Pytest) for retrieval AND patching
-- Symmetric tool interface: give rag_progressive a file-read tool to match GM's tool count
-- Decide n≥300 (quality claim) vs cost-validation-only framing
+**Resolved decisions (2026-02-23):**
+- Patching dataset: **SWE-bench Verified, full 500-instance test set** (SOTA standard; direct comparison
+  to Agentless 38.8%, etc.; resolves per-repo count problem by not restricting to 3 repos)
+- BM25 implementation: **rank_bm25 library** (Tier 0 retrieval baseline, same repo interface as gm_det;
+  NOT the Princeton bm25_27K dataset which is fixed to SWE-bench and not usable for retrieval F1)
+- Repair samples: **1 per instance** (keep current; document explicitly as "single-sample" in paper)
+- Patching vs. retrieval populations: retrieval stays Flask/Requests/Pytest (existing data);
+  patching uses full SWE-bench Verified (all repos)
 
-**Phase 4 — Audit before full runs:**
-- Small pilot (n=10, 2-3 methods, 1 repo) with new baseline lineup
-- Adversarial audit (Professor Mean session) before committing to full runs
+**Phase 3 — New experiment design: IN PROGRESS (2026-02-23)**
+Full design spec: `v2_phase3_handoff.md`; dev log: `dev_logs/2026-02-23-v2-phase3-implementation.md`
+
+- ✓ Step 1: BM25 retrieval baseline implemented (`src/bm25_baseline.py`)
+  - Uses BM25Plus + regex tokenizer (alphanumeric splits)
+  - Wired into `run_experiment.py` (ALL_METHODS), `src/evaluation.py`, `run_patch.py`
+  - 12 new tests in `tests/test_bm25_baseline.py`
+  - `rank_bm25` installed in `.venv`
+- ✓ Step 2: Symmetric file-read tool for rag_progressive
+  - `RAGAgent` now accepts `symmetric_tools: bool`, `repo_dir: str`, `max_file_chars: int`
+  - `get_file_contents(path)` tool added; enabled via manifest flag `rag_symmetric_tools: true`
+  - Path traversal protection (resolve().relative_to() check)
+  - 9 new tests in `tests/test_rag_symmetric_tools.py`
+- ✓ Step 3: V2 patching manifests generated
+  - `tools/generate_v2_verified_manifests.py` created
+  - `patch_manifests/v2_verified/` populated: 3 pilot + 48 full manifests
+  - Pilot: psf/requests × {oracle, gm_progressive, bm25} = 3 files × 8 instances
+  - Full: 12 repos × 4 methods = 48 files, 500 total unique instances
+  - V2 settings: instance_wall_clock_cap_s=600, rate_limit_max_retries=3
+  - Ledger: `patch_manifests/v2_verified/manifest_ledger_v2.json`
+- ✓ Step 3b: P0/P1 hardening from first-pass audit (2026-02-24)
+  - Implemented real `agentic_cold_start` retrieval mode (`src/agentic_cold_start.py`) and wired into `run_patch.py`
+  - Fixed patch path traversal in `PatchAgent._read_file` (`resolve().relative_to(repo_root)` guard)
+  - Canonicalized oracle outputs against valid repo paths before patch prompt inclusion
+  - Added missing BM25 dependency to `requirements.txt` (`rank_bm25>=0.2.2`)
+  - Fixed `run_experiment` latest-artifact copy path to tolerate method subsets with no `graph.json`
+  - Corrected V2 manifest method mapping (`agentic_cold_start` no longer aliases `none`) and handoff command/count drift
+- ✓ Step 3c: cross-method patch-input fairness cap (2026-02-24)
+  - Added global post-retrieval cap before patch stage: `retrieval_max_files_for_patch` (default `6`, `null` disables)
+  - Applied cap to initial retrieval and retrieval-retry paths before feeding `PatchAgent`
+  - Added per-instance telemetry fields:
+    `retrieved_files_pre_cap`, `retrieved_files_post_cap`, `retrieval_max_files_for_patch`
+  - Added retrieval-cap unit tests (`RetrievalFileCapTests`)
+  - Added explicit `retrieval_max_files_for_patch: 6` to all `patch_manifests/v2_verified/*.yaml`
+- ✓ Step 3d: concurrent-run collision hardening (2026-02-24)
+  - Added method/path-scoped harness run IDs in `run_patch.py`:
+    `graphmanager_<run_id>_<method>_<pathhash>`
+  - Wired into both Stage1+2 and `--evaluate-only` codepaths; persisted as `harness_run_id` in summaries.
+  - Added same-second run-directory collision protection under shared `--results-dir`:
+    auto-allocate `run_id` with numeric suffix (`_01`, `_02`, ...).
+  - Added unit tests:
+    - `HarnessRunIdTests`
+    - `RunOutputDirAllocationTests`
+- ✓ Step 3e: GraphManager run dashboard implemented (2026-02-24)
+  - Added run-status collector module: `src/patch_dashboard.py`
+  - Added web dashboard server: `tools/patch_dashboard.py`
+    - endpoint: `/api/status`
+    - live HTML table at `/` (auto-refresh)
+    - scans `results/**/patch_runs/*`, using `predictions_partial.jsonl` + `patch_summary.json`
+  - Added dashboard tests: `tests/test_patch_dashboard.py`
+  - Dashboard discovery now includes empty run dirs so freshly launched runs appear immediately as `not_started`
+  - Added run metadata + dedupe improvements for in-flight accuracy:
+    - `run_patch.py` now writes `run_meta.json` at run start (`manifest`, `retrieval_method`, `n_instances_planned`).
+    - dashboard now reads `run_meta.json` to show denominator pre-summary (`n_completed/n_instances`).
+    - dashboard dedupes duplicate in-flight attempts for the same manifest (keeps freshest attempt).
+    - backfilled `run_meta.json` for active V2 astropy runs so live dashboard is immediately accurate.
+- 201 tests pass (`./.venv/bin/python -m unittest discover -s tests -v`)
+- ✓ Step 4: Pilot run completed (2026-02-24; concurrent launch + Modal eval)
+  - Launch mode: 3 manifests started concurrently, each in isolated workdir:
+    `/tmp/gm_pilot_oracle`, `/tmp/gm_pilot_bm25`, `/tmp/gm_pilot_gmprogressive`
+    to avoid git checkout contention on shared `requests_repo`.
+  - Manifest set:
+    - `patch_manifests/v2_verified/pilot_oracle_v1.yaml`
+    - `patch_manifests/v2_verified/pilot_bm25_v1.yaml`
+    - `patch_manifests/v2_verified/pilot_gm_progressive_v1.yaml`
+  - Run roots:
+    - `results/v2_pilot_parallel/pilot_oracle_v1_session_20260223_210845/patch_runs/20260223_210845/`
+    - `results/v2_pilot_parallel/pilot_bm25_v1_session_20260223_210845/patch_runs/20260223_210845/`
+    - `results/v2_pilot_parallel/pilot_gm_progressive_v1_session_20260223_210845/patch_runs/20260223_210845/`
+  - Final pilot metrics (psf/requests, n=8 each):
+    - oracle: patched `8/8`, resolved `4/8` (`50.0%`), total cost `61,490`, CPR `15,372.5`
+    - bm25: patched `7/8`, resolved `4/8` (`50.0%`), total cost `289,433`, CPR `72,358.25`
+    - gm_progressive: patched `7/8`, resolved `5/8` (`62.5%`), total cost `366,129`, CPR `73,225.8`
+  - Harness mode: `--evaluate --modal` confirmed (all 3 runs entered SWE-bench harness path).
+  - Pilot summary artifact added:
+    - `docs/V2_PILOT_RESULTS_2026-02-24.md`
+- IN PROGRESS Step 5: Adversarial audit + full run kickoff
+  - ✓ Added missing-base-commit checkout recovery in `run_patch.py`:
+    when `git checkout <base_commit>` fails with `reference is not a tree`,
+    runner now fetches (`origin <commit>` fallback to `--all --tags --prune`) and retries.
+  - ✓ Added regression tests:
+    `CommitCheckoutSelectionTests.test_checkout_issue_commit_fetches_missing_commit_then_retries`
+    and `...raises_on_non_missing_ref_errors`.
+  - ✓ Full unit suite green after change: 206 tests passing.
+  - ✓ Modal Stage1+2 smoke validated on real patch generation (non-dry-run):
+    - manifest: `/tmp/v2_modal_smoke_1instance.yaml` (1 instance from pilot oracle)
+    - run: `results/v2_smoke/patch_runs/20260223_222230/`
+    - outcome: patched `1/1`, resolved `1/1`, harness via `--modal` confirmed.
+  - ✓ Full V2 run launched (Verified test split, 48 manifests):
+    - manifest list: `logs/v2_full_manifests_20260223_222457.txt`
+    - runner script: `/tmp/v2_full_runner_20260223_222457.sh`
+    - runner log: `logs/v2_full_run_20260223_222457.log`
+    - kickoff metadata: `logs/v2_full_kickoff_20260223_222457.txt`
+    - results root: `results/v2_full_runs/`
+  - ✓ Full-run restart with watchdog after first-launch stall on manifest #1:
+    - old runner (`20260223_222457`) hung on first manifest for >8h with no progress.
+    - new watchdog runner launched:
+      - script: `/tmp/v2_full_runner_watchdog_20260223_223555.sh`
+      - log: `logs/v2_full_run_20260223_223555.log`
+      - failure log: `logs/v2_full_failures_20260223_223555.log`
+      - kickoff: `logs/v2_full_kickoff_20260223_223555.txt`
+    - guardrails added at launcher level: unbuffered Python logs, per-manifest timeout (4200s), continue-on-failure.
+  - ✓ Added repo-safe parallel manifest pool launcher and activated it for remaining repos:
+    - script: `tools/run_manifest_pool.py`
+    - policy: parallel across repos, serialized within each repo (avoids git checkout contention).
+    - launched with `--max-parallel-repos 3`, then raised to `--max-parallel-repos 8` per researcher request.
+    - active 8-way pool (astropy excluded while watchdog run is active):
+      - pool log: `logs/v2_repo_pool_20260223_225727.log`
+      - pool failures: `logs/v2_repo_pool_failures_20260223_225727.log`
+  - ✓ Concurrency safety fix for 8-way launch:
+    - hardened `_allocate_run_output_dir` against concurrent mkdir races (`FileExistsError` retry loop).
+    - added race regression test:
+      `RunOutputDirAllocationTests.test_allocate_run_output_dir_retries_when_mkdir_races`.
+  - ✓ Dashboard launched for live tracking:
+    - URL: `http://127.0.0.1:5051`
+    - API: `http://127.0.0.1:5051/api/status`
+    - log: `logs/patch_dashboard_5051_20260223_222457.log`
+
+**Next action for Step 5 (researcher):**
+1. Let the active full run proceed; monitor `logs/v2_full_run_20260223_222457.log` and dashboard `/api/status`.
+2. If first failing manifest appears, resume from same manifest list after fix (runner already skips completed manifests by manifest path).
+3. After completion, aggregate patch summaries into a V2 full-run scorecard (resolved rate + cost-per-resolved per method).
+
+Pilot validation gates (all must pass before full run):
+1. Oracle resolved rate ≥ 25%
+2. BM25 + GM generate non-empty patches (resolved ≥ 0%)
+3. predictions_partial.jsonl written for all instances
+4. No apply_failed rate > 80%
+5. Token costs in expected range (oracle ~30K-80K, GM ~50K-150K, BM25 ~5K-20K/instance)
+
+**Phase 4 — Audit before full runs:** (folded into Phase 3 step 5)
+
+- 2026-02-24: First-pass repository analysis artifact generated (code/docs/manifests/state audit):
+  - `docs/FIRST_PASS_REPOSITORY_ANALYSIS_2026-02-24.md`
+  - Includes severity-ranked findings, evidence references, and P0/P1/P2 remediation backlog.
+- 2026-02-24: V2 run blueprint + remediation sequencing doc added:
+  - `docs/V2_RUN_DESIGN_2026-02-24.md`
+- 2026-02-24: Baseline rebuild design for `repomap_like` + `agentless_like_localization` added:
+  - `docs/V2_BASELINE_REBUILD_DESIGN_2026-02-24.md`
+  - Decision: proceed with L1 component-equated baselines now; defer L2 full-system reproduction.
+  - Fidelity refinements applied: explicit RepoMap-like edge schema/weights, symbol->file projection note,
+    constrained Agentless-like Stage 1 candidate selection, and strict Stage 3 span I/O contract.
+- 2026-02-24: New baseline hardening patch applied (retrieval rigor + reproducibility):
+  - `src/agentless_like_localization.py`: Stage 3 now uses stable SHA256-based sampling seed
+    (no Python hash randomization drift across processes), enforces `stage3_max_tokens_per_file`,
+    and reports `stage3_context_tokens_per_file` in method metadata.
+  - Added tests in `tests/test_agentless_like_localization.py` for per-file Stage-3 token cap and
+    deterministic span stability.
+  - Full suite pass after patch: `./.venv/bin/python -m unittest discover -s tests -v` (`242` tests, all pass).
+  - Live V2 pool snapshot (dashboard API, 2026-02-24): planned `96` manifests (`4000` instances);
+    started `84` (`58 complete`, `6 running`, `20 stalled`), started-progress `1499/2267` completed,
+    `926` patched.
+- 2026-02-24: Data-completeness safeguard added for the active 8-method full run:
+  - Verified non-rerun behavior on completed manifests (`tools/run_manifest_pool.py` emits `SKIP completed ...` by manifest path).
+  - Launched detached mop-up supervisor (`setsid`) to prevent missing data on failed/stalled manifests:
+    - script: `/tmp/v2_full_mopup_loop.sh`
+    - pid: `10035`
+    - log: `logs/v2_full_mopup_supervisor_20260224_142123.log`
+  - Supervisor policy:
+    - waits for current primary pool to exit,
+    - runs additional passes with `--resume-incomplete`,
+    - never reruns manifests with existing `patch_summary.json` (completed manifests are skipped).
 
 - 2026-02-22: Modal harness `timeout=300` is too tight — `psf__requests-2317` timed out at 296.67s. Bump to `timeout=600` in `run_patch.py` line `swebench_eval(..., timeout=300, ...)` before any Modal run on slower repos.
 - 2026-02-22: `max_workers=1 if modal else 4` in the harness call may not control Modal parallelism — Modal Sandboxes appear to run all instances in parallel regardless. Investigate whether `max_workers` has a different meaning in the Modal context, and whether removing the special-case is safe.
@@ -409,4 +676,3 @@ DO NOT skip to experiments without completing research phase first.
 - scikit-learn/scikit-learn: `20260221_055821` marker=`harness_results` n_resolved=0
 - sphinx-doc/sphinx: `20260221_071644` marker=`harness_results` n_resolved=0
 - sympy/sympy: `20260221_083037` marker=`harness_results` n_resolved=0
-
