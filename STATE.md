@@ -1,7 +1,7 @@
 # STATE.md -- Current project status
 
 Last updated: 2026-02-25
-Last agent: Claude (repo cleanup + hardening session)
+Last agent: Claude (repo cleanup + retrieval expansion planning session)
 
 ---
 
@@ -31,13 +31,15 @@ Full scope: `RESEARCH_INTENT.md`. Permitted claims: `CLAIMS_LOCK.md`.
 - RepoMap-like: `src/repomap_like.py` (PageRank on file-level graph)
 - Agentless-like: `src/agentless_like_localization.py` (3-stage hierarchical)
 - V2 manifests: `patch_manifests/v2_verified/` (12 repos x 8 methods + 3 pilots)
+- Retrieval expansion config: `experiments_retrieval_expansion_v2.yaml` (9 new repos from Verified)
 - Checkpoint/resume: `--resume` flag, `predictions_partial.jsonl`
 - Parallel stage 1: `--workers N`, isolated repo clones per worker
-- Modal harness: `--modal` flag, timeout=600s
+- Docker harness available locally (v28.4.0)
 - Dashboard: `tools/patch_dashboard.py` on port 5051
 - Run provenance: `run_meta.json` captures git SHA, manifest hash, dep versions
 - Makefile: `make verify` / `make test` / `make smoke` / `make lint`
 - 242 unit tests passing
+- Scientific rigor audit: PASSED (2026-02-25) — no confounds, fair baselines, standard SWE-bench harness
 
 ### V2 experiment runs (partial)
 
@@ -53,11 +55,12 @@ Full scope: `RESEARCH_INTENT.md`. Permitted claims: `CLAIMS_LOCK.md`.
 
 See TASKS.md for the active task. High-level sequence:
 
-1. Complete Stage 1 for remaining manifests (resume pool)
-2. Run Stage 2 (harness eval) on all completed Stage 1 data
-3. Aggregate results into V2 scorecard
-4. Run priority ablations (max_turns, BM25 granularity)
-5. Rewrite paper with V2 data
+1. **T0: Retrieval expansion** — run retrieval eval on 9 new repos (align populations)
+2. **T1: Complete Stage 1** for remaining patching manifests (resume pool)
+3. **T2: Run Stage 2** (Docker harness eval) on all completed Stage 1 data
+4. **T3: Aggregate scorecard** — retrieval F1 + patching resolve rate + CPR per repo
+5. T4: Priority ablations
+6. T5: Rewrite paper with V2 data
 
 ---
 
@@ -65,10 +68,11 @@ See TASKS.md for the active task. High-level sequence:
 
 | ID | Severity | Description | Status |
 |----|----------|-------------|--------|
-| I1 | MEDIUM | Retrieval population (Flask/Requests/Pytest) != patching population (12 Verified repos) | Open -- frame as separate experiments |
+| I1 | HIGH | Retrieval population != patching population | **Fix planned**: T0 expands retrieval to all 12 patching repos |
 | I2 | MEDIUM | Single repair sample vs Agentless 40-sample -- document explicitly | Open -- paper framing |
-| I3 | LOW | `agentless_like_localization` may fall through to deterministic fallback -- verify LLM fires | Open -- add telemetry |
-| I4 | LOW | Dataset adapter silently swallows split-load failures | Open -- add fail-fast mode |
+| I3 | LOW | `agentless_like_localization` may fall through to deterministic fallback | Open -- T6 adds telemetry |
+| I4 | LOW | Dataset adapter silently swallows split-load failures | Open -- T7 adds fail-fast |
+| I5 | LOW | Seaborn manifests have `source_prefixes: []` (indexes entire repo) | Open -- T8 fixes |
 
 ---
 
@@ -78,5 +82,5 @@ See TASKS.md for the active task. High-level sequence:
 
 - Consider `bm25_function` ablation (function-chunk BM25 vs file-level)
 - Consider k=3 repair sample ablation on 50-instance pilot subset
-- Run retrieval experiments on all 12 Verified repos (align retrieval/patching populations)
 - Add integration tests for harness interface
+- Consider dropping seaborn from analysis (n=2 too small for meaningful comparison)

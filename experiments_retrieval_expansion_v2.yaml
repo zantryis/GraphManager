@@ -1,0 +1,193 @@
+# Retrieval expansion: align retrieval eval population with V2 patching population.
+# Adds 9 repos from SWE-bench Verified that are in the patching campaign
+# but missing from the retrieval matrix.
+#
+# Run with: ./.venv/bin/python run_suite.py experiments_retrieval_expansion_v2.yaml
+#
+# Design decisions:
+# - Uses SWE-bench Verified (same dataset as patching manifests)
+# - n=10 per repo (first 10 from patching manifest), except seaborn (n=2, all available)
+# - strict_commit_fidelity track (per-issue gold checkout)
+# - 1 repeat (anchor repos Flask/Requests/Pytest already have 3 repeats in main matrix)
+# - Methods: gm_progressive, rag_progressive, bm25 (the 3 that matter for cost story)
+
+suite: retrieval-expansion-v2
+
+description: >
+  Expand retrieval evaluation to all 12 V2 patching repos.
+  Eliminates the retrieval/patching population mismatch (STATE.md issue I1).
+  Instance IDs drawn from the first 10 of each V2 Verified patching manifest.
+
+defaults:
+  manager_max_turns: 8
+  rag_max_turns: 8
+  repeats: 1
+  redact_paths_in_issue_text: true
+  seed: 17
+  notes: retrieval-expansion-v2
+  task_family: swe-bench
+  dataset_name: SWE-bench/SWE-bench_Verified
+
+experiments:
+  # --- astropy (n=10 of 23 Verified) ---
+  - repo: astropy/astropy
+    domain: library
+    source_prefixes: [astropy]
+    n_issues: 10
+    issue_set_id: issues_verified_astropy_v2_10
+    instance_ids:
+      - astropy__astropy-12907
+      - astropy__astropy-13033
+      - astropy__astropy-13236
+      - astropy__astropy-13398
+      - astropy__astropy-13453
+      - astropy__astropy-13579
+      - astropy__astropy-13977
+      - astropy__astropy-14096
+      - astropy__astropy-14182
+      - astropy__astropy-14309
+    evaluation_track: strict_commit_fidelity
+
+  # --- django (n=10 of 232 Verified) ---
+  - repo: django/django
+    domain: web_framework
+    source_prefixes: [django]
+    n_issues: 10
+    issue_set_id: issues_verified_django_v2_10
+    instance_ids:
+      - django__django-10097
+      - django__django-10554
+      - django__django-10880
+      - django__django-10914
+      - django__django-10973
+      - django__django-10999
+      - django__django-11066
+      - django__django-11087
+      - django__django-11095
+      - django__django-11099
+    evaluation_track: strict_commit_fidelity
+
+  # --- matplotlib (n=10 of 36 Verified) ---
+  - repo: matplotlib/matplotlib
+    domain: library
+    source_prefixes: [lib/matplotlib, matplotlib]
+    n_issues: 10
+    issue_set_id: issues_verified_matplotlib_v2_10
+    instance_ids:
+      - matplotlib__matplotlib-13989
+      - matplotlib__matplotlib-14623
+      - matplotlib__matplotlib-20488
+      - matplotlib__matplotlib-20676
+      - matplotlib__matplotlib-20826
+      - matplotlib__matplotlib-20859
+      - matplotlib__matplotlib-21568
+      - matplotlib__matplotlib-22719
+      - matplotlib__matplotlib-22865
+      - matplotlib__matplotlib-22871
+    evaluation_track: strict_commit_fidelity
+
+  # --- seaborn (n=2, all available in Verified) ---
+  - repo: mwaskom/seaborn
+    domain: library
+    source_prefixes: [seaborn]
+    n_issues: 2
+    issue_set_id: issues_verified_seaborn_v2_2
+    instance_ids:
+      - mwaskom__seaborn-3069
+      - mwaskom__seaborn-3187
+    evaluation_track: strict_commit_fidelity
+
+  # --- xarray (n=10 of 23 Verified) ---
+  - repo: pydata/xarray
+    domain: library
+    source_prefixes: [xarray]
+    n_issues: 10
+    issue_set_id: issues_verified_xarray_v2_10
+    instance_ids:
+      - pydata__xarray-2905
+      - pydata__xarray-3095
+      - pydata__xarray-3151
+      - pydata__xarray-3305
+      - pydata__xarray-3677
+      - pydata__xarray-3993
+      - pydata__xarray-4075
+      - pydata__xarray-4094
+      - pydata__xarray-4356
+      - pydata__xarray-4629
+    evaluation_track: strict_commit_fidelity
+
+  # --- pylint (n=10 of 11 Verified) ---
+  - repo: pylint-dev/pylint
+    domain: testing_tooling
+    source_prefixes: [pylint]
+    n_issues: 10
+    issue_set_id: issues_verified_pylint_v2_10
+    instance_ids:
+      - pylint-dev__pylint-4551
+      - pylint-dev__pylint-4604
+      - pylint-dev__pylint-4661
+      - pylint-dev__pylint-4970
+      - pylint-dev__pylint-6386
+      - pylint-dev__pylint-6528
+      - pylint-dev__pylint-6903
+      - pylint-dev__pylint-7080
+      - pylint-dev__pylint-7277
+      - pylint-dev__pylint-8898
+    evaluation_track: strict_commit_fidelity
+
+  # --- scikit-learn (n=10 of 33 Verified) ---
+  - repo: scikit-learn/scikit-learn
+    domain: library
+    source_prefixes: [sklearn]
+    n_issues: 10
+    issue_set_id: issues_verified_sklearn_v2_10
+    instance_ids:
+      - scikit-learn__scikit-learn-10297
+      - scikit-learn__scikit-learn-10844
+      - scikit-learn__scikit-learn-10908
+      - scikit-learn__scikit-learn-11310
+      - scikit-learn__scikit-learn-11578
+      - scikit-learn__scikit-learn-12585
+      - scikit-learn__scikit-learn-12682
+      - scikit-learn__scikit-learn-12973
+      - scikit-learn__scikit-learn-13124
+      - scikit-learn__scikit-learn-13135
+    evaluation_track: strict_commit_fidelity
+
+  # --- sphinx (n=10 of 45 Verified) ---
+  - repo: sphinx-doc/sphinx
+    domain: documentation
+    source_prefixes: [sphinx]
+    n_issues: 10
+    issue_set_id: issues_verified_sphinx_v2_10
+    instance_ids:
+      - sphinx-doc__sphinx-10323
+      - sphinx-doc__sphinx-10435
+      - sphinx-doc__sphinx-10449
+      - sphinx-doc__sphinx-10466
+      - sphinx-doc__sphinx-10614
+      - sphinx-doc__sphinx-10673
+      - sphinx-doc__sphinx-11445
+      - sphinx-doc__sphinx-11510
+      - sphinx-doc__sphinx-7440
+      - sphinx-doc__sphinx-7454
+    evaluation_track: strict_commit_fidelity
+
+  # --- sympy (n=10 of 76 Verified) ---
+  - repo: sympy/sympy
+    domain: library
+    source_prefixes: [sympy]
+    n_issues: 10
+    issue_set_id: issues_verified_sympy_v2_10
+    instance_ids:
+      - sympy__sympy-11618
+      - sympy__sympy-12096
+      - sympy__sympy-12419
+      - sympy__sympy-12481
+      - sympy__sympy-12489
+      - sympy__sympy-13031
+      - sympy__sympy-13091
+      - sympy__sympy-13372
+      - sympy__sympy-13480
+      - sympy__sympy-13551
+    evaluation_track: strict_commit_fidelity

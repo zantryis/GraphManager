@@ -18,6 +18,17 @@
 
 ## Backlog (prioritized)
 
+### T0: Run retrieval expansion on 9 new repos
+**Priority:** P0 (fixes population mismatch — STATE.md issue I1)
+**Acceptance criteria:**
+- `experiments_retrieval_expansion_v2.yaml` run to completion (9 repos x 3 methods x 10 issues)
+- Results in `results/runs/` with summary.json per experiment
+- Retrieval F1 values recorded in STATE.md
+**Owner:** unassigned
+**Status:** `[BACKLOG]`
+**Notes:** Config ready at `experiments_retrieval_expansion_v2.yaml`. Run with `run_suite.py`. Cheap — no Docker needed, ~2-4 hours API time. Must run BEFORE patching campaign to validate retrieval on new repos.
+**Command:** `./.venv/bin/python run_suite.py experiments_retrieval_expansion_v2.yaml`
+
 ### T1: Complete Stage 1 for remaining V2 manifests
 **Priority:** P0 (blocking everything downstream)
 **Acceptance criteria:**
@@ -35,16 +46,17 @@
 **Owner:** unassigned
 **Status:** `[BACKLOG]`
 **Depends on:** T1
-**Notes:** Requires Docker or `--modal`. Modal credits should be checked first.
+**Notes:** Docker is available locally (v28.4.0). No Modal needed.
 
 ### T3: Aggregate V2 results into scorecard
 **Priority:** P1
 **Acceptance criteria:**
 - CSV/JSON artifact with columns: repo, method, n_instances, n_resolved, resolve_rate, CPR_method_accounted, CPR_as_run
 - Covers all 12 repos x 8 methods (+ oracle)
+- Retrieval F1 column included (from T0 + existing matrix data)
 **Owner:** unassigned
 **Status:** `[BACKLOG]`
-**Depends on:** T2
+**Depends on:** T0, T2
 
 ### T4: Run priority ablations (max_turns, BM25 granularity)
 **Priority:** P2
@@ -83,6 +95,14 @@
 **Status:** `[BACKLOG]`
 **Notes:** See STATE.md known issue I4
 
+### T8: Fix seaborn source_prefixes in patching manifests
+**Priority:** P3 (correctness)
+**Acceptance criteria:**
+- All 8 `mwaskom_seaborn_*_v1.yaml` manifests have `source_prefixes: [seaborn]` instead of `source_prefixes: []`
+**Owner:** unassigned
+**Status:** `[BACKLOG]`
+**Notes:** Empty source_prefixes means the pipeline indexes the entire repo. Only 2 instances so low impact, but should be correct.
+
 ---
 
 ## Done
@@ -92,3 +112,5 @@
 | -- | V2 infrastructure (BM25, symmetric tools, manifests, checkpoint, parallel, Modal, dashboard) | 242 tests pass, pilot gates passed | 2026-02-24 |
 | -- | Provenance capture in run_patch.py | `_capture_provenance()` + Makefile smoke test | 2026-02-25 |
 | -- | Model tracking in evaluation.py | `model_name` parameter added | 2026-02-25 |
+| -- | Repo cleanup + all V2 work committed | PR #1 merged, 186 files, 242 tests pass | 2026-02-25 |
+| -- | Retrieval expansion config generated | `experiments_retrieval_expansion_v2.yaml` (9 repos, SWE-bench Verified) | 2026-02-25 |
