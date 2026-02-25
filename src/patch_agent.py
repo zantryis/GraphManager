@@ -153,7 +153,12 @@ class PatchAgent:
 
     def _read_file(self, rel_path: str) -> str | None:
         """Read a repo file, truncate if over max_file_chars."""
-        path = self.repo_dir / rel_path
+        try:
+            path = (self.repo_dir / rel_path).resolve()
+            repo_root = self.repo_dir.resolve()
+            path.relative_to(repo_root)
+        except ValueError:
+            return None
         if not path.exists():
             return None
         try:

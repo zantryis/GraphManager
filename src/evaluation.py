@@ -12,16 +12,19 @@ from pathlib import Path
 import git
 from google import genai
 
+from .bm25_baseline import BM25Index
 from .datasets import build_issue_adapter
 from .deterministic_retrieval import DEFAULT_WEIGHTS, DeterministicGraphRetriever
 from .graph_builder import GraphBuilder, GraphIndex
 from .manager_agent import ManagerAgent
+from .repomap_like import RepoMapLikeRetriever
 from .path_resolution import (
     canonicalize_file_paths,
     normalize_file_path as _normalize_file_path,
     normalize_file_paths as _normalize_file_paths,
 )
 from .rag_baseline import RAGAgent, RAGIndex, RawRAG
+from .agentless_like_localization import AgentlessLikeLocalizer
 from .run_ids import build_issue_set_id, build_suite_id
 
 DEFAULT_SOURCE_PREFIXES = None  # None = index entire repo
@@ -147,8 +150,9 @@ def validate_commit_context(
     all-zero F1 results that pass CI gates.
     """
     setup_costs = context.get("setup_costs", {})
-    graph_methods = {"gm_progressive", "gm_baseline", "gm_deterministic"}
-    rag_function_methods = {"rag_progressive", "rag_baseline", "raw_rag_function"}
+    graph_embedding_methods = {"gm_progressive", "gm_baseline", "gm_deterministic"}
+    graph_structure_methods = graph_embedding_methods | {"repomap_like", "agentless_like_localization"}
+    rag_function_methods = {"rag_progressive", "rag_baseline", "raw_rag_function", "agentless_like_localization"}
     rag_fixed_methods = {"raw_rag_fixed"}
     required = set(required_methods or ALL_METHODS)
     unknown = required - set(ALL_METHODS)
@@ -156,14 +160,24 @@ def validate_commit_context(
         unknown_list = ", ".join(sorted(unknown))
         raise ValueError(f"Unknown required methods in validate_commit_context: {unknown_list}")
 
-    needs_graph = bool(required & graph_methods)
+    needs_graph_structure = bool(required & graph_structure_methods)
+    needs_graph_embedding = bool(required & graph_embedding_methods)
     needs_rag_function = bool(required & rag_function_methods)
     needs_rag_fixed = bool(required & rag_fixed_methods)
 
-    if needs_graph:
+    if needs_graph_structure:
+        graph_file_paths = context.get("graph_file_paths", set())
+        if not graph_file_paths:
+            raise ValueError(
+                "Graph structure is empty (no Python files in graph_file_paths). "
+                "source_prefixes likely matches no Python files in the repo at this commit. "
+                "Check source_prefixes against the actual directory layout."
+            )
+
+    if needs_graph_embedding:
         graph_tokens = max(
             int(setup_costs.get(method, {}).get("embedding_tokens", 0) or 0)
-            for method in graph_methods
+            for method in graph_embedding_methods
         )
         if graph_tokens == 0:
             raise ValueError(
@@ -193,6 +207,16 @@ def validate_commit_context(
                 "source_prefixes likely matches no Python files in the repo at this commit. "
                 "Check source_prefixes against the actual directory layout."
             )
+
+    if "bm25" in required:
+        bm25_file_paths = context.get("bm25_file_paths", set())
+        if not bm25_file_paths:
+            raise ValueError(
+                "BM25 index is empty (no .py files indexed). "
+                "source_prefixes likely matches no Python files in the repo at this commit. "
+                "Check source_prefixes against the actual directory layout."
+            )
+
 
 
 def build_issue_groups(
@@ -376,6 +400,30 @@ def build_error_result(error: Exception | str, setup_embedding_tokens: int) -> d
     }
 
 
+def _copy_run_artifacts(
+    *,
+    run_path: Path,
+    base_results_path: Path,
+    create_run_subdir: bool,
+) -> None:
+    """Copy stable artifacts from a run directory into latest/ convenience paths."""
+    if not create_run_subdir:
+        return
+
+    latest_path = base_results_path / "latest"
+    if latest_path.exists():
+        shutil.rmtree(latest_path)
+    latest_path.mkdir(parents=True, exist_ok=True)
+
+    artifact_names = ("graph.json", "detailed_results.json", "summary.json")
+    for name in artifact_names:
+        src = run_path / name
+        if not src.exists():
+            continue
+        shutil.copy2(src, latest_path / name)
+        shutil.copy2(src, base_results_path / name)
+
+
 def run_experiment(
     gemini_api_key: str,
     n_issues: int = 10,
@@ -412,6 +460,7 @@ def run_experiment(
     deterministic_w_hint: float = DEFAULT_WEIGHTS["w_hint"],
     deterministic_w_pen: float = DEFAULT_WEIGHTS["w_pen"],
     methods: tuple[str, ...] | None = None,
+    model_name: str = "gemini-3-flash-preview",
 ):
     """
     Main experiment: compare Graph-Manager vs RAG-Agent vs Raw-RAG
@@ -507,7 +556,6 @@ def run_experiment(
     commit_context_cache: dict[str, dict] = {}
     commit_context_cache_stats = {"lookups": 0, "hits": 0, "misses": 0}
     detailed_results = []
-    model_name = "gemini-2.0-flash"
 
     def get_or_build_commit_context(base_commit: str | None) -> dict:
         cache_key = base_commit or NO_BASE_COMMIT
@@ -526,20 +574,28 @@ def run_experiment(
         graph_index = None
         rag_func = None
         rag_fixed = None
+        bm25_index = None
         graph_file_paths = set()
         rag_function_file_paths = set()
         rag_fixed_file_paths = set()
+        bm25_file_paths = set()
         graph_setup = {"build_time_s": 0.0, "embedding_tokens": 0}
         rag_func_setup = {"build_time_s": 0.0, "embedding_tokens": 0}
         rag_fixed_setup = {"build_time_s": 0.0, "embedding_tokens": 0}
+        bm25_setup = {"build_time_s": 0.0, "embedding_tokens": 0}
 
-        needs_graph = bool(enabled_method_set & {"gm_deterministic", "gm_progressive", "gm_baseline"})
+        needs_graph_index = bool(enabled_method_set & {"gm_deterministic", "gm_progressive", "gm_baseline"})
+        needs_graph_structure = needs_graph_index or bool(
+            enabled_method_set & {"repomap_like", "agentless_like_localization"}
+        )
         needs_rag_function = bool(
-            enabled_method_set & {"rag_progressive", "rag_baseline", "raw_rag_function"}
+            enabled_method_set
+            & {"rag_progressive", "rag_baseline", "raw_rag_function", "agentless_like_localization"}
         )
         needs_rag_fixed = "raw_rag_fixed" in enabled_method_set
+        needs_bm25 = "bm25" in enabled_method_set
 
-        if needs_graph:
+        if needs_graph_structure:
             t0 = time.time()
             builder = GraphBuilder(repo_dir, include_prefixes=source_prefixes)
             graph = builder.build()
@@ -554,13 +610,17 @@ def run_experiment(
             if not canonical_graph_path.exists():
                 shutil.copy2(commit_graph_path, canonical_graph_path)
 
-            t0 = time.time()
-            graph_index = GraphIndex(graph, client)
-            graph_index.build()
-            graph_index_time = time.time() - t0
+            graph_index_time = 0.0
+            graph_embedding_tokens = 0
+            if needs_graph_index:
+                t0 = time.time()
+                graph_index = GraphIndex(graph, client)
+                graph_index.build()
+                graph_index_time = time.time() - t0
+                graph_embedding_tokens = int(graph_index.embedding_tokens_estimate)
             graph_setup = {
                 "build_time_s": graph_build_time + graph_index_time,
-                "embedding_tokens": int(graph_index.embedding_tokens_estimate),
+                "embedding_tokens": graph_embedding_tokens,
             }
             graph_file_paths = {
                 str(node_id)
@@ -608,6 +668,18 @@ def run_experiment(
                 if chunk.get("file")
             }
 
+        if needs_bm25:
+            t0 = time.time()
+            bm25_index = BM25Index(repo_dir, include_prefixes=source_prefixes)
+            bm25_index.build()
+            bm25_build_time = time.time() - t0
+            bm25_setup = {
+                "build_time_s": bm25_build_time,
+                "embedding_tokens": 0,  # BM25 has no embedding cost
+            }
+            bm25_file_paths = set(bm25_index._file_paths)
+            print(f"    BM25: {len(bm25_file_paths)} files indexed ({bm25_build_time:.1f}s)")
+
         setup_costs = {
             "gm_deterministic": graph_setup,
             "gm_progressive": graph_setup,
@@ -616,6 +688,15 @@ def run_experiment(
             "rag_baseline": rag_func_setup,
             "raw_rag_function": rag_func_setup,
             "raw_rag_fixed": rag_fixed_setup,
+            "bm25": bm25_setup,
+            "repomap_like": {
+                "build_time_s": graph_setup["build_time_s"],
+                "embedding_tokens": 0,
+            },
+            "agentless_like_localization": {
+                "build_time_s": graph_setup["build_time_s"] + rag_func_setup["build_time_s"],
+                "embedding_tokens": int(rag_func_setup.get("embedding_tokens", 0) or 0),
+            },
         }
         for method_key, setup in setup_costs.items():
             method_setup_totals[method_key]["build_time_s"] += float(setup.get("build_time_s", 0.0))
@@ -627,9 +708,11 @@ def run_experiment(
             "graph_index": graph_index,
             "rag_function_index": rag_func,
             "rag_fixed_index": rag_fixed,
+            "bm25_index": bm25_index,
             "graph_file_paths": graph_file_paths,
             "rag_function_file_paths": rag_function_file_paths,
             "rag_fixed_file_paths": rag_fixed_file_paths,
+            "bm25_file_paths": bm25_file_paths,
             "setup_costs": setup_costs,
         }
         validate_commit_context(context, required_methods=enabled_methods)
@@ -666,6 +749,21 @@ def run_experiment(
             deterministic_methods.append(
                 ("gm_deterministic", "GM (deterministic)", gm_deterministic)
             )
+        if "repomap_like" in enabled_method_set:
+            repomap_like = RepoMapLikeRetriever(
+                graph=context["graph"],
+                client=None,
+                top_k_files=10,
+                map_tokens=1000,
+                use_llm_selector=False,
+                refresh_mode="static_per_issue",
+                edge_weights=None,
+                enable_same_module_edge=False,
+                personalization_enabled=True,
+            )
+            deterministic_methods.append(
+                ("repomap_like", "RepoMap-like", repomap_like)
+            )
 
         agentic_methods = []
         if "gm_progressive" in enabled_method_set:
@@ -696,6 +794,26 @@ def run_experiment(
             agentic_methods.append(
                 ("rag_baseline", "RAG (baseline)", rag_baseline, rag_max_turns)
             )
+        if "agentless_like_localization" in enabled_method_set:
+            agentless_like = AgentlessLikeLocalizer(
+                rag_index=context["rag_function_index"],
+                graph=context["graph"],
+                client=client,
+                model=model_name,
+                stage2_enabled=True,
+                stage3_enabled=True,
+                edit_location_samples=4,
+                file_branch_top_n=3,
+                embed_branch_top_k=20,
+                merge_top_k=12,
+                stage3_context_window_lines=10,
+                stage3_max_tokens_per_file=1200,
+                constrained_candidates_max=200,
+                reject_out_of_candidate_paths=True,
+            )
+            agentic_methods.append(
+                ("agentless_like_localization", "Agentless-like", agentless_like, manager_max_turns)
+            )
 
         raw_methods = []
         if "raw_rag_function" in enabled_method_set:
@@ -704,6 +822,8 @@ def run_experiment(
         if "raw_rag_fixed" in enabled_method_set:
             raw_rag_fixed_agent = RawRAG(context["rag_fixed_index"])
             raw_methods.append(("raw_rag_fixed", "Raw-RAG (fixed)", raw_rag_fixed_agent))
+        if "bm25" in enabled_method_set:
+            raw_methods.append(("bm25", "BM25", context["bm25_index"]))
 
         for issue in commit_issues:
             issue_index += 1
@@ -766,7 +886,7 @@ def run_experiment(
                 )
                 valid_files = (
                     context["graph_file_paths"]
-                    if method_key.startswith("gm_")
+                    if (method_key.startswith("gm_") or method_key == "agentless_like_localization")
                     else context["rag_function_file_paths"]
                 )
                 try:
@@ -806,11 +926,12 @@ def run_experiment(
                 setup_tokens = int(
                     context["setup_costs"].get(method_key, {}).get("embedding_tokens", 0)
                 )
-                valid_files = (
-                    context["rag_fixed_file_paths"]
-                    if method_key == "raw_rag_fixed"
-                    else context["rag_function_file_paths"]
-                )
+                if method_key == "raw_rag_fixed":
+                    valid_files = context["rag_fixed_file_paths"]
+                elif method_key == "bm25":
+                    valid_files = context["bm25_file_paths"]
+                else:
+                    valid_files = context["rag_function_file_paths"]
                 try:
                     files, tokens = agent.find_relevant_files(issue_query)
                     normalized_files = normalize_file_paths(files)
@@ -902,20 +1023,12 @@ def run_experiment(
     with open(results_path / "summary.json", "w") as f:
         json.dump(summary, f, indent=2)
 
-    # Keep a copy of the latest run in a stable path for quick inspection
-    if create_run_subdir:
-        latest_path = base_results_path / "latest"
-        if latest_path.exists():
-            shutil.rmtree(latest_path)
-        latest_path.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(results_path / "graph.json", latest_path / "graph.json")
-        shutil.copy2(results_path / "detailed_results.json", latest_path / "detailed_results.json")
-        shutil.copy2(results_path / "summary.json", latest_path / "summary.json")
-
-        # Backward-compatible convenience copies at results/*.json
-        shutil.copy2(results_path / "graph.json", base_results_path / "graph.json")
-        shutil.copy2(results_path / "detailed_results.json", base_results_path / "detailed_results.json")
-        shutil.copy2(results_path / "summary.json", base_results_path / "summary.json")
+    # Keep a copy of the latest run in a stable path for quick inspection.
+    _copy_run_artifacts(
+        run_path=results_path,
+        base_results_path=base_results_path,
+        create_run_subdir=create_run_subdir,
+    )
 
     # Print results table
     print_results_table(summary)
@@ -929,6 +1042,9 @@ ALL_METHODS = [
     "gm_progressive", "gm_baseline",
     "rag_progressive", "rag_baseline",
     "raw_rag_function", "raw_rag_fixed",
+    "bm25",
+    "repomap_like",
+    "agentless_like_localization",
 ]
 
 METHOD_LABELS = {
@@ -939,6 +1055,9 @@ METHOD_LABELS = {
     "rag_baseline": "RAG (baseline)",
     "raw_rag_function": "Raw-RAG (func)",
     "raw_rag_fixed": "Raw-RAG (fixed)",
+    "bm25": "BM25",
+    "repomap_like": "RepoMap-like",
+    "agentless_like_localization": "Agentless-like",
 }
 
 

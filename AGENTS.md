@@ -1,71 +1,67 @@
-# AGENTS.md — GraphManager Agent Instructions (Codex / OpenAI agents)
+# AGENTS.md -- How to operate in this repo
 
-## Start of every session
+## On session start
 
-Read these two files before doing anything else:
+Read these files in this order:
 
-1. `CURRENT_STATE.md` — what workstream you are on, what is done, what the next action is, known bugs
-2. `RESEARCH_INTENT.md` — the paper scope, claims, and what NOT to build
+1. **`STATE.md`** -- what is done, what is next, known risks
+2. **`TASKS.md`** -- the task backlog; find your assigned task
+3. **`RESEARCH_INTENT.md`** -- paper scope and claims (do not violate)
+4. **`CLAIMS_LOCK.md`** -- permitted claim strength
 
-If these files contradict each other, `RESEARCH_INTENT.md` wins on scope decisions;
-`CURRENT_STATE.md` wins on execution state.
+If STATE.md and RESEARCH_INTENT.md conflict: RESEARCH_INTENT.md wins on scope;
+STATE.md wins on execution status.
 
-For full dev policy (TDD requirements, commit hygiene, scope rules), read `CLAUDE.md`.
+## Rules
 
-## End of every session
+1. **One task at a time.** Find the single `[ACTIVE]` task in TASKS.md. Work only on that.
+2. **TDD for all behavior changes.** Write a failing test -> implement -> run `make verify`.
+3. **Do not re-run frozen experiments.** Check STATE.md before running anything.
+4. **Do not create new tasks.** Append ideas to the Parking Lot in STATE.md.
+5. **Do not change RESEARCH_INTENT.md or CLAIMS_LOCK.md.** Only the researcher does that.
+6. **Do not commit results/ or logs/.** Both are gitignored.
+7. **Record provenance.** Every patch run produces `run_meta.json` with git SHA, manifest hash, dep versions.
 
-Update `CURRENT_STATE.md`:
-- Mark completed tasks done
-- Record run IDs and key metrics
-- Update bug fix status
-- Update "Next action" for the workstream you touched
+## Health check
 
-Write a dev log entry in `dev_logs/YYYY-MM-DD-<short-slug>.md` for non-trivial changes.
-Use `dev_logs/TEMPLATE.md` for the structure.
+```bash
+make verify    # 242 tests + import lint -- must pass before ANY code change
+make smoke     # quick pipeline plumbing test (no API key needed)
+```
 
----
+## On session end
 
-## Must-Follow Workflow
+1. Update STATE.md: mark completed items, record run IDs / metrics, update "Next action"
+2. Update TASKS.md: mark your task `[DONE]` if acceptance criteria are met
+3. Write a dev log in `dev_logs/YYYY-MM-DD-<slug>.md` for non-trivial changes
 
-1. **TDD for all behavior changes:** write failing test → implement → run full suite
-   `./.venv/bin/python -m unittest discover -s tests -v` — all tests must pass.
-2. **One workstream at a time:** A (retrieval), B (patching), C (paper) are separate.
-   Do not touch A files while working on B.
-3. **Do not re-run frozen experiments.** Check `CURRENT_STATE.md` first.
-4. **Do not commit** `*_repo/` directories or `results/` (gitignored).
-5. **Scope discipline:** read `RESEARCH_INTENT.md`. No MAS work, no feature creep.
-
----
-
-## Current Priorities
-
-See `CURRENT_STATE.md` for the authoritative task list.
-
-Current workstream status:
-- Workstream A (retrieval eval): [ACTIVE] — retrieval matrix complete; deterministic reruns may still be pending
-- Workstream B (patching pipeline): [DONE] — N=100 pilot complete, numbers locked in `CLAIMS_LOCK.md`
-- Workstream C (paper writing): [DONE] — 15-page two-column paper, all Table 3 cells filled, clean compile
-
----
-
-## Key Commands
+## Key commands
 
 ```bash
 # Retrieval experiment
 ./.venv/bin/python run_experiment.py --repo-name pallets/flask \
-  --source-prefix src/flask --n-issues 10 --manager-max-turns 6 --rag-max-turns 6
+  --source-prefix src/flask --n-issues 10
 
-# Patching — Stage 1: generate patches (no Docker/Modal needed)
-./.venv/bin/python run_patch.py --manifest patch_manifests/swebench_verified_requests_v1.yaml
+# Patching -- Stage 1 only (no Docker needed)
+./.venv/bin/python run_patch.py --manifest patch_manifests/v2_verified/pilot_oracle_v1.yaml
 
-# Patching — Stage 1+2 combined (evaluate inline, requires Docker or --modal)
-./.venv/bin/python run_patch.py --manifest patch_manifests/swebench_verified_requests_v1.yaml \
-  --evaluate [--modal]
+# Patching -- Stage 1+2 (requires Docker or --modal)
+./.venv/bin/python run_patch.py --manifest patch_manifests/v2_verified/pilot_oracle_v1.yaml \
+  --evaluate --modal
 
-# Patching — Stage 2 only: run harness on an existing predictions.json
-./.venv/bin/python run_patch.py --manifest patch_manifests/swebench_verified_requests_v1.yaml \
-  --evaluate-only --run-dir results/patch_runs/<run_id> [--modal]
+# Batch pool (parallel across repos)
+./.venv/bin/python tools/run_manifest_pool.py \
+  --manifest-list <list.txt> --results-dir results/v2_full_runs \
+  --max-parallel-repos 8 --resume-incomplete
 
-# Test suite
-./.venv/bin/python -m unittest discover -s tests -v
+# Full test suite
+make test
 ```
+
+## What NOT to do
+
+- Do not build MAS orchestration (Paper 2 scope)
+- Do not modify V1 frozen results or the archived paper
+- Do not skip the pilot before a full run
+- Do not compare against external systems by running their code
+- Do not add features not needed for the current experiment

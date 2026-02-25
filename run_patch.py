@@ -22,8 +22,9 @@ Manifest format (YAML):
     instance_ids:
       - pallets__flask-4045
       - psf__requests-1713
-    retrieval_method: gm_progressive   # gm_deterministic | rag_progressive | oracle | none
+    retrieval_method: gm_progressive   # gm_deterministic | rag_progressive | raw_rag_function | raw_rag_fixed | bm25 | oracle | none | agentic_cold_start | repomap_like | agentless_like_localization
     manager_max_turns: 4
+    retrieval_max_files_for_patch: 6  # post-retrieval cap before patching (set null to disable)
     patch_max_turns: 3
     patch_max_output_tokens: 4096
     patch_max_file_chars: 8000
@@ -31,10 +32,13 @@ Manifest format (YAML):
 
 import argparse
 import concurrent.futures
+import hashlib
 import httpx
 import json
 import os
+import platform
 import random
+import shutil
 import subprocess
 import sys
 import time
@@ -45,6 +49,51 @@ from dotenv import load_dotenv
 
 DEFAULT_MANAGER_MODEL = "gemini-3-flash-preview"
 DEFAULT_PATCH_MODEL = "gemini-3-flash-preview"
+
+
+def _capture_provenance(manifest_path: str) -> dict:
+    """Capture reproducibility metadata: git SHA, manifest hash, python/dep versions."""
+    provenance: dict = {
+        "python_version": platform.python_version(),
+        "platform": platform.platform(),
+        "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    # Git SHA of the repo running the pipeline (NOT the target repo)
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+            cwd=str(Path(__file__).parent),
+        )
+        provenance["pipeline_git_sha"] = result.stdout.strip() if result.returncode == 0 else "unknown"
+    except Exception:
+        provenance["pipeline_git_sha"] = "unknown"
+    # Check for uncommitted changes
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True, text=True, timeout=5,
+            cwd=str(Path(__file__).parent),
+        )
+        provenance["pipeline_dirty"] = bool(result.stdout.strip()) if result.returncode == 0 else None
+    except Exception:
+        provenance["pipeline_dirty"] = None
+    # Manifest content hash
+    try:
+        manifest_bytes = Path(manifest_path).read_bytes()
+        provenance["manifest_sha256"] = hashlib.sha256(manifest_bytes).hexdigest()
+    except Exception:
+        provenance["manifest_sha256"] = "unknown"
+    # Key dependency versions
+    dep_versions = {}
+    for pkg in ("swebench", "google-genai", "rank_bm25", "tree_sitter", "networkx", "faiss"):
+        try:
+            import importlib.metadata
+            dep_versions[pkg] = importlib.metadata.version(pkg.replace("_", "-").replace("_", "-"))
+        except Exception:
+            dep_versions[pkg] = "unknown"
+    provenance["dependency_versions"] = dep_versions
+    return provenance
 
 
 def _checkout_issue_commit(
@@ -62,7 +111,25 @@ def _checkout_issue_commit(
             print(f"    Checking out {target_commit[:12]} for {issue_id}...")
         else:
             print(f"    Checking out {target_commit[:12]}...")
-        repo_git.git.checkout(target_commit, force=True)
+        try:
+            repo_git.git.checkout(target_commit, force=True)
+        except Exception as exc:
+            # Some local SWE-bench repo clones do not yet contain the issue's base commit.
+            # Attempt a targeted fetch, then retry checkout once.
+            if "reference is not a tree" not in str(exc).lower():
+                raise
+            print(f"    Missing commit locally; fetching {target_commit[:12]}...")
+            fetch_error = None
+            for fetch_args in (("origin", target_commit), ("--all", "--tags", "--prune")):
+                try:
+                    repo_git.git.fetch(*fetch_args)
+                    fetch_error = None
+                    break
+                except Exception as fetch_exc:
+                    fetch_error = fetch_exc
+            if fetch_error is not None:
+                raise fetch_error from exc
+            repo_git.git.checkout(target_commit, force=True)
         return target_commit
     return current_commit
 
@@ -83,6 +150,51 @@ def _resolve_model_config(manifest: dict) -> tuple[str, str]:
     manager_model = str(manifest.get("manager_model") or DEFAULT_MANAGER_MODEL)
     patch_model = str(manifest.get("patch_model") or DEFAULT_PATCH_MODEL)
     return manager_model, patch_model
+
+
+def _slugify_identifier(value: str) -> str:
+    """Return a filesystem-safe lowercase identifier fragment."""
+    lowered = (value or "").strip().lower()
+    chars = [ch if ch.isalnum() else "-" for ch in lowered]
+    slug = "".join(chars).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug or "unknown"
+
+
+def _build_harness_run_id(
+    *,
+    run_id: str,
+    retrieval_method: str,
+    results_path: Path,
+    existing_harness_run_id: str | None = None,
+) -> str:
+    """Build a collision-resistant harness run ID for concurrent runs."""
+    if existing_harness_run_id:
+        return str(existing_harness_run_id)
+
+    method_slug = _slugify_identifier(retrieval_method)
+    path_hash = hashlib.sha1(str(results_path.resolve()).encode("utf-8")).hexdigest()[:8]
+    return f"graphmanager_{run_id}_{method_slug}_{path_hash}"
+
+
+def _allocate_run_output_dir(results_dir: str) -> tuple[str, Path]:
+    """Allocate a unique run directory under <results_dir>/patch_runs."""
+    patch_runs_root = Path(results_dir) / "patch_runs"
+    patch_runs_root.mkdir(parents=True, exist_ok=True)
+
+    base_run_id = time.strftime("%Y%m%d_%H%M%S")
+    suffix = 0
+    while True:
+        run_id = base_run_id if suffix == 0 else f"{base_run_id}_{suffix:02d}"
+        candidate = patch_runs_root / run_id
+        try:
+            candidate.mkdir(parents=False, exist_ok=False)
+            return run_id, candidate
+        except FileExistsError:
+            # Handle concurrent allocators racing on the same timestamp/suffix.
+            suffix += 1
+        suffix += 1
 
 
 def _is_transient_api_error(exc: Exception) -> bool:
@@ -161,6 +273,7 @@ def _run_retrieval(
     graph,
     graph_index,
     rag_index,
+    bm25_index=None,
     client,
     method: str,
     manager_model: str,
@@ -168,6 +281,13 @@ def _run_retrieval(
     deterministic_config: dict,
     redact_paths: bool = True,
     retry_feedback: str | None = None,
+    rag_symmetric_tools: bool = False,
+    repo_dir: str | None = None,
+    include_prefixes: tuple[str, ...] | None = None,
+    valid_file_paths: set[str] | None = None,
+    patch_max_file_chars: int = 200_000,
+    repomap_config: dict | None = None,
+    agentless_like_config: dict | None = None,
 ) -> tuple[list[str], dict]:
     """Run one retrieval method for one issue."""
     from src.evaluation import normalize_file_paths, prepare_issue_text
@@ -182,76 +302,188 @@ def _run_retrieval(
             "stop_reason": "no_retrieval",
         }
 
+    files: list[str]
+    tokens: dict
+
     if method == "oracle":
         from src.datasets.adapters import extract_gold_files_from_patch
 
         oracle_files = extract_gold_files_from_patch(issue.get("patch", ""))
         if not oracle_files:
             oracle_files = issue.get("gold_files", [])
-        return normalize_file_paths(oracle_files), {
+        files = normalize_file_paths(oracle_files)
+        tokens = {
             "prompt_tokens": 0,
             "candidate_tokens": 0,
             "total_tokens": 0,
             "tool_calls": 0,
             "stop_reason": "oracle",
         }
-
-    query = prepare_issue_text(
-        issue.get("problem_statement", ""),
-        redact_paths=redact_paths,
-    )
-    if retry_feedback:
-        query = f"{query}\n\n## Retrieval Retry Feedback\n{retry_feedback}"
-
-    if method == "gm_progressive":
-        from src.manager_agent import ManagerAgent
-        agent = ManagerAgent(
-            graph,
-            graph_index,
-            client,
-            model=manager_model,
-            retrieval_mode="progressive",
-        )
-        files, tokens = agent.find_relevant_files(query, max_turns=manager_max_turns)
-
-    elif method == "gm_deterministic":
-        from src.deterministic_retrieval import DeterministicGraphRetriever
-        agent = DeterministicGraphRetriever(
-            graph, graph_index,
-            **deterministic_config,
-        )
-        files, tokens = agent.find_relevant_files(query)
-
-    elif method == "rag_progressive":
-        from src.rag_baseline import RAGAgent
-        agent = RAGAgent(
-            rag_index,
-            client,
-            model=manager_model,
-            retrieval_mode="progressive",
-        )
-        files, tokens = agent.find_relevant_files(query, max_turns=manager_max_turns)
-
     else:
-        raise ValueError(f"Unsupported retrieval method: {method}")
+        query = prepare_issue_text(
+            issue.get("problem_statement", ""),
+            redact_paths=redact_paths,
+        )
+        if retry_feedback:
+            query = f"{query}\n\n## Retrieval Retry Feedback\n{retry_feedback}"
 
-    valid_file_paths: set[str] = set()
-    if graph is not None:
-        valid_file_paths = {
-            str(node_id)
-            for node_id, node_data in graph.nodes(data=True)
-            if node_data.get("type") == "file" and str(node_id).endswith(".py")
-        }
-    elif rag_index is not None:
-        valid_file_paths = {
-            str(chunk.get("file", ""))
-            for chunk in getattr(rag_index, "chunks", [])
-            if str(chunk.get("file", "")).endswith(".py")
-        }
+        if method == "gm_progressive":
+            from src.manager_agent import ManagerAgent
+            agent = ManagerAgent(
+                graph,
+                graph_index,
+                client,
+                model=manager_model,
+                retrieval_mode="progressive",
+            )
+            files, tokens = agent.find_relevant_files(query, max_turns=manager_max_turns)
+
+        elif method == "gm_deterministic":
+            from src.deterministic_retrieval import DeterministicGraphRetriever
+            agent = DeterministicGraphRetriever(
+                graph, graph_index,
+                **deterministic_config,
+            )
+            files, tokens = agent.find_relevant_files(query)
+
+        elif method == "rag_progressive":
+            from src.rag_baseline import RAGAgent
+            agent = RAGAgent(
+                rag_index,
+                client,
+                model=manager_model,
+                retrieval_mode="progressive",
+                repo_dir=repo_dir,
+                symmetric_tools=rag_symmetric_tools,
+                max_file_chars=patch_max_file_chars,
+            )
+            files, tokens = agent.find_relevant_files(query, max_turns=manager_max_turns)
+
+        elif method in {"rag_baseline", "raw_rag_function", "raw_rag_fixed"}:
+            if rag_index is None:
+                raise ValueError(f"rag_index must be provided when method='{method}'")
+            if method == "rag_baseline":
+                from src.rag_baseline import RAGAgent
+                agent = RAGAgent(
+                    rag_index,
+                    client,
+                    model=manager_model,
+                    retrieval_mode="baseline",
+                    repo_dir=repo_dir,
+                    symmetric_tools=False,
+                    max_file_chars=patch_max_file_chars,
+                )
+                files, tokens = agent.find_relevant_files(query, max_turns=manager_max_turns)
+            else:
+                from src.rag_baseline import RawRAG
+                agent = RawRAG(rag_index)
+                files, tokens = agent.find_relevant_files(query, top_k=20)
+
+        elif method == "agentic_cold_start":
+            from src.agentic_cold_start import AgenticColdStartAgent
+            if not repo_dir:
+                raise ValueError("repo_dir must be provided when method='agentic_cold_start'")
+            agent = AgenticColdStartAgent(
+                repo_dir=repo_dir,
+                client=client,
+                model=manager_model,
+                include_prefixes=include_prefixes,
+                max_file_chars=patch_max_file_chars,
+            )
+            files, tokens = agent.find_relevant_files(query, max_turns=manager_max_turns)
+
+        elif method == "bm25":
+            if bm25_index is None:
+                raise ValueError("bm25_index must be provided when method='bm25'")
+            files, tokens = bm25_index.find_relevant_files(query)
+
+        elif method == "repomap_like":
+            if graph is None:
+                raise ValueError("graph must be provided when method='repomap_like'")
+            from src.repomap_like import RepoMapLikeRetriever
+
+            cfg = dict(repomap_config or {})
+            agent = RepoMapLikeRetriever(
+                graph=graph,
+                client=client if bool(cfg.get("use_llm_selector", False)) else None,
+                model=manager_model,
+                top_k_files=int(cfg.get("top_k_files", 10) or 10),
+                map_tokens=int(cfg.get("map_tokens", 1000) or 1000),
+                use_llm_selector=bool(cfg.get("use_llm_selector", False)),
+                refresh_mode=str(cfg.get("refresh_mode", "static_per_issue") or "static_per_issue"),
+                edge_weights=dict(cfg.get("edge_weights", {}) or {}),
+                enable_same_module_edge=bool(cfg.get("enable_same_module_edge", False)),
+                personalization_enabled=bool(cfg.get("personalization_enabled", True)),
+            )
+            files, tokens = agent.find_relevant_files(query)
+
+        elif method == "agentless_like_localization":
+            if rag_index is None:
+                raise ValueError("rag_index must be provided when method='agentless_like_localization'")
+            if graph is None:
+                raise ValueError("graph must be provided when method='agentless_like_localization'")
+            from src.agentless_like_localization import AgentlessLikeLocalizer
+
+            cfg = dict(agentless_like_config or {})
+            agent = AgentlessLikeLocalizer(
+                rag_index=rag_index,
+                graph=graph,
+                client=client,
+                model=manager_model,
+                stage2_enabled=bool(cfg.get("stage2_enabled", True)),
+                stage3_enabled=bool(cfg.get("stage3_enabled", True)),
+                edit_location_samples=int(cfg.get("edit_location_samples", 4) or 4),
+                file_branch_top_n=int(cfg.get("file_branch_top_n", 3) or 3),
+                embed_branch_top_k=int(cfg.get("embed_branch_top_k", 20) or 20),
+                merge_top_k=int(cfg.get("merge_top_k", 12) or 12),
+                stage3_context_window_lines=int(cfg.get("stage3_context_window_lines", 10) or 10),
+                stage3_max_tokens_per_file=int(cfg.get("stage3_max_tokens_per_file", 1200) or 1200),
+                constrained_candidates_max=int(cfg.get("constrained_candidates_max", 200) or 200),
+                reject_out_of_candidate_paths=bool(cfg.get("reject_out_of_candidate_paths", True)),
+            )
+            files, tokens = agent.find_relevant_files(query, max_turns=manager_max_turns)
+
+        else:
+            raise ValueError(f"Unsupported retrieval method: {method}")
+
+    resolved_valid_paths: set[str] = set(valid_file_paths or set())
+    if not resolved_valid_paths:
+        if graph is not None:
+            resolved_valid_paths = {
+                str(node_id)
+                for node_id, node_data in graph.nodes(data=True)
+                if node_data.get("type") == "file" and str(node_id).endswith(".py")
+            }
+        elif rag_index is not None:
+            resolved_valid_paths = {
+                str(chunk.get("file", ""))
+                for chunk in getattr(rag_index, "chunks", [])
+                if str(chunk.get("file", "")).endswith(".py")
+            }
+        elif bm25_index is not None:
+            resolved_valid_paths = {
+                str(path)
+                for path in getattr(bm25_index, "_file_paths", [])
+                if str(path).endswith(".py")
+            }
 
     normalized = normalize_file_paths(files)
-    canonical = canonicalize_file_paths(normalized, valid_file_paths) if valid_file_paths else normalized
+    canonical = canonicalize_file_paths(normalized, resolved_valid_paths) if resolved_valid_paths else normalized
     return canonical, tokens
+
+
+def _cap_retrieved_files(
+    files: list[str],
+    *,
+    max_files: int | None,
+) -> tuple[list[str], int, int]:
+    """Apply a global post-retrieval file cap for patch-context fairness."""
+    normalized = list(files or [])
+    pre_count = len(normalized)
+    if max_files is None:
+        return normalized, pre_count, pre_count
+    capped = normalized[: max(max_files, 1)]
+    return capped, pre_count, len(capped)
 
 
 def _tokenish_number(value):
@@ -319,6 +551,7 @@ def _build_method_scoped_commit_context(
         "graph": None,
         "graph_index": None,
         "rag_index": None,
+        "bm25_index": None,
         "graph_file_paths": set(),
         "retrieval_setup_tokens": 0,
         "setup_tokens_graph_built": 0,
@@ -328,6 +561,8 @@ def _build_method_scoped_commit_context(
 
     gm_family = {"gm_progressive", "gm_deterministic", "gm_baseline"}
     rag_family = {"rag_progressive", "rag_baseline", "raw_rag_function", "raw_rag_fixed"}
+    repomap_family = {"repomap_like"}
+    agentless_family = {"agentless_like_localization"}
 
     if retrieval_method in gm_family:
         print("    Building graph index...")
@@ -362,6 +597,31 @@ def _build_method_scoped_commit_context(
                 "retrieval_setup_tokens": graph_tokens,
                 "setup_tokens_graph_built": graph_tokens,
                 "setup_tokens_method_accounted": graph_tokens,
+            }
+        )
+        return context
+
+    if retrieval_method in repomap_family:
+        print("    Building graph (repomap_like)...")
+        builder = graph_builder_cls(repo_dir, include_prefixes=prefixes)
+        graph = builder.build()
+        file_paths = {
+            str(node_id)
+            for node_id, node_data in graph.nodes(data=True)
+            if node_data.get("type") == "file"
+        }
+        if not file_paths:
+            raise ValueError(
+                "repomap_like graph is empty (no Python files in scope). "
+                "Check source_prefixes against repository layout."
+            )
+        context.update(
+            {
+                "graph": graph,
+                "graph_file_paths": file_paths,
+                "retrieval_setup_tokens": 0,
+                "setup_tokens_graph_built": 0,
+                "setup_tokens_method_accounted": 0,
             }
         )
         return context
@@ -403,6 +663,81 @@ def _build_method_scoped_commit_context(
         )
         return context
 
+    if retrieval_method in agentless_family:
+        print("    Building graph (agentless_like_localization)...")
+        builder = graph_builder_cls(repo_dir, include_prefixes=prefixes)
+        graph = builder.build()
+        graph_file_paths = {
+            str(node_id)
+            for node_id, node_data in graph.nodes(data=True)
+            if node_data.get("type") == "file"
+        }
+        if not graph_file_paths:
+            raise ValueError(
+                "agentless_like_localization graph is empty (no Python files in scope). "
+                "Check source_prefixes against repository layout."
+            )
+
+        print("    Building RAG index (agentless_like_localization)...")
+        rag_index = rag_index_cls(
+            repo_dir,
+            client,
+            chunk_strategy="function",
+            include_prefixes=prefixes,
+        )
+        rag_index.build()
+        rag_tokens = int(getattr(rag_index, "embedding_tokens_estimate", 0) or 0)
+        validate_commit_context_fn(
+            {"graph_file_paths": set(), "setup_costs": {"rag_progressive": {"embedding_tokens": rag_tokens}}},
+            required_methods=("rag_progressive",),
+        )
+        context.update(
+            {
+                "graph": graph,
+                "rag_index": rag_index,
+                "graph_file_paths": {
+                    str(chunk.get("file", ""))
+                    for chunk in getattr(rag_index, "chunks", [])
+                    if str(chunk.get("file", ""))
+                } | graph_file_paths,
+                "retrieval_setup_tokens": rag_tokens,
+                "setup_tokens_graph_built": 0,
+                "setup_tokens_rag_built": rag_tokens,
+                "setup_tokens_method_accounted": rag_tokens,
+            }
+        )
+        return context
+
+    if retrieval_method == "bm25":
+        print("    Building BM25 index...")
+        from src.bm25_baseline import BM25Index
+        bm25_index = BM25Index(repo_dir, include_prefixes=prefixes)
+        bm25_index.build()
+        bm25_file_paths = set(bm25_index._file_paths)
+        print(f"      BM25: {len(bm25_file_paths)} files indexed")
+
+        context.update(
+            {
+                "bm25_index": bm25_index,
+                "graph_file_paths": bm25_file_paths,  # used for patch context file set
+                "retrieval_setup_tokens": 0,          # BM25 has no embedding cost
+                "setup_tokens_method_accounted": 0,
+            }
+        )
+        return context
+
+    # none/oracle/agentic_cold_start do not build retrieval indices, but still
+    # expose valid repo file paths for canonicalization and path safety.
+    repo_paths = set()
+    for py_file in sorted(Path(repo_dir).rglob("*.py")):
+        rel = py_file.relative_to(repo_dir).as_posix()
+        if any(part.startswith(".") for part in py_file.parts):
+            continue
+        if prefixes:
+            if not any(rel == prefix or rel.startswith(prefix + "/") for prefix in prefixes):
+                continue
+        repo_paths.add(rel)
+    context["graph_file_paths"] = repo_paths
     return context
 
 
@@ -725,6 +1060,122 @@ def _extract_harness_results_from_instance_reports(*, harness_run_id: str, n_tot
     }
 
 
+def _worker_checkpoint_sort_key(path: Path) -> tuple[int, str]:
+    stem = path.stem
+    suffix = stem.removeprefix("predictions_worker_")
+    try:
+        return int(suffix), path.name
+    except ValueError:
+        return 10**9, path.name
+
+
+def _checkpoint_files(run_dir: Path) -> list[Path]:
+    worker_files = list(
+        sorted(
+            run_dir.glob("predictions_worker_*.jsonl"),
+            key=_worker_checkpoint_sort_key,
+        )
+    )
+    partial_path = run_dir / "predictions_partial.jsonl"
+    # Prefer worker snapshots first, then canonical partial file last so
+    # sequential/resume updates override older worker entries for same IID.
+    if partial_path.exists():
+        worker_files.append(partial_path)
+    return worker_files
+
+
+def _load_partial_checkpoint(run_dir: Path) -> dict:
+    """Load completed instances from predictions_partial.jsonl.
+
+    Returns a dict mapping instance_id → {"prediction": {...}, "per_instance": {...}}.
+    Returns empty dict if no checkpoint file exists or all lines are malformed.
+    """
+    checkpoint_files = _checkpoint_files(run_dir)
+    if not checkpoint_files:
+        return {}
+    completed = {}
+    for checkpoint_file in checkpoint_files:
+        for line in checkpoint_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+                iid = entry["instance_id"]
+                completed[iid] = entry
+            except (json.JSONDecodeError, KeyError):
+                continue
+    return completed
+
+
+def _flush_instance_to_checkpoint(
+    run_dir: Path,
+    instance_id: str,
+    prediction: dict,
+    per_instance: dict,
+    checkpoint_filename: str = "predictions_partial.jsonl",
+) -> None:
+    """Append one completed instance to a checkpoint JSONL (atomic line append)."""
+    partial_path = run_dir / checkpoint_filename
+    entry = {"instance_id": instance_id, "prediction": prediction, "per_instance": per_instance}
+    with partial_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
+def _merge_worker_predictions(run_dir: Path, n_workers: int) -> tuple[dict, list]:
+    """Merge per-worker partial JSONL files into a single predictions dict and per_instance list.
+
+    Each worker writes to predictions_worker_N.jsonl. This function reads all worker files
+    (in worker order, instances within each file in order) and returns:
+      - predictions: dict mapping instance_id → prediction dict (for SWE-bench harness)
+      - per_instance_list: ordered list of per-instance result dicts
+
+    Missing or empty worker files are silently skipped (worker may have crashed before writing).
+    Malformed lines are skipped.
+    """
+    predictions: dict = {}
+    per_instance_list: list = []
+    for worker_id in range(n_workers):
+        worker_file = run_dir / f"predictions_worker_{worker_id}.jsonl"
+        if not worker_file.exists():
+            continue
+        for line in worker_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+                iid = entry["instance_id"]
+                predictions[iid] = entry["prediction"]
+                per_instance_list.append(entry["per_instance"])
+            except (json.JSONDecodeError, KeyError):
+                continue
+    return predictions, per_instance_list
+
+
+def _distribute_instances(instances: list, n_workers: int) -> list[list]:
+    """Split *instances* into *n_workers* contiguous chunks.
+
+    Remainder items go to earlier workers (chunk 0 gets the extras).
+    Always returns exactly *n_workers* lists, some of which may be empty
+    if n_workers > len(instances).
+
+    Example:
+        _distribute_instances(range(10), 3) → [[0,1,2,3], [4,5,6], [7,8,9]]
+    """
+    n = len(instances)
+    if n_workers <= 0:
+        raise ValueError(f"n_workers must be >= 1, got {n_workers}")
+    base, extra = divmod(n, n_workers)
+    chunks: list[list] = []
+    start = 0
+    for i in range(n_workers):
+        size = base + (1 if i < extra else 0)
+        chunks.append(list(instances[start: start + size]))
+        start += size
+    return chunks
+
+
 def _run_evaluate_only(run_dir: str, modal: bool = False) -> dict:
     """
     Stage 2 (evaluate-only): run SWE-bench harness on an existing predictions.json.
@@ -743,6 +1194,7 @@ def _run_evaluate_only(run_dir: str, modal: bool = False) -> dict:
     run_id = summary["run_id"]
     dataset_name = summary["dataset_name"]
     retrieval_method = summary.get("retrieval_method", "unknown")
+    existing_harness_run_id = summary.get("harness_run_id")
     predictions_path = Path(summary["predictions_path"])
     per_instance = summary.get("per_instance", [])
     instance_ids = [r["instance_id"] for r in per_instance]
@@ -785,7 +1237,13 @@ def _run_evaluate_only(run_dir: str, modal: bool = False) -> dict:
     print("\n=== Running SWE-bench harness evaluation ===")
     try:
         from swebench.harness.run_evaluation import main as swebench_eval
-        harness_run_id = f"graphmanager_{run_id}"
+        harness_run_id = _build_harness_run_id(
+            run_id=run_id,
+            retrieval_method=retrieval_method,
+            results_path=results_path,
+            existing_harness_run_id=existing_harness_run_id,
+        )
+        summary["harness_run_id"] = harness_run_id
         harness_report_dir = results_path / "harness_reports"
         harness_report_dir.mkdir(exist_ok=True)
 
@@ -794,13 +1252,13 @@ def _run_evaluate_only(run_dir: str, modal: bool = False) -> dict:
             split=split,
             instance_ids=instance_ids,
             predictions_path=str(predictions_path),
-            max_workers=1 if modal else 4,
+            max_workers=4,  # Modal path ignores this; 4 controls local Docker thread count
             force_rebuild=False,
             cache_level="env",
             clean=False,
             open_file_limit=4096,
             run_id=harness_run_id,
-            timeout=300,
+            timeout=600,
             namespace=None,
             rewrite_reports=False,
             modal=modal,
@@ -873,6 +1331,8 @@ def run_patch_pipeline(
     modal: bool = False,
     evaluate_only: bool = False,
     run_dir: str | None = None,
+    resume: bool = False,
+    n_workers: int = 1,
 ) -> dict:
     """
     Run retrieval → patch generation → optional evaluation for all instances in a manifest.
@@ -889,6 +1349,8 @@ def run_patch_pipeline(
             sys.exit(1)
         return _run_evaluate_only(run_dir=run_dir, modal=modal)
 
+    n_workers = max(1, int(n_workers))
+
     load_dotenv()
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -904,10 +1366,36 @@ def run_patch_pipeline(
     patch_max_turns = int(manifest.get("patch_max_turns", 3))
     patch_max_output_tokens = int(manifest.get("patch_max_output_tokens", 4096))
     patch_max_file_chars = int(manifest.get("patch_max_file_chars", 8000))
+    retrieval_max_files_raw = manifest.get("retrieval_max_files_for_patch", 6)
+    retrieval_max_files_for_patch = None
+    if retrieval_max_files_raw is not None:
+        retrieval_max_files_for_patch = max(1, int(retrieval_max_files_raw))
     patch_apply_repair_retries = min(2, max(0, int(manifest.get("patch_apply_repair_retries", 2))))
     patch_retrieval_retry_max = min(1, max(0, int(manifest.get("patch_retrieval_retry_max", 1))))
     retrieval_redact_paths_in_issue_text = bool(manifest.get("retrieval_redact_paths_in_issue_text", True))
     patch_redact_paths_in_issue_text = bool(manifest.get("patch_redact_paths_in_issue_text", False))
+    rag_symmetric_tools = bool(manifest.get("rag_symmetric_tools", False))
+    repomap_config = {
+        "map_tokens": int(manifest.get("repomap_like_map_tokens", 1000) or 1000),
+        "top_k_files": int(manifest.get("repomap_like_top_k_files", 10) or 10),
+        "use_llm_selector": bool(manifest.get("repomap_like_use_llm_selector", False)),
+        "refresh_mode": str(manifest.get("repomap_like_refresh_mode", "static_per_issue") or "static_per_issue"),
+        "edge_weights": dict(manifest.get("repomap_like_edge_weights", {}) or {}),
+        "enable_same_module_edge": bool(manifest.get("repomap_like_enable_same_module_edge", False)),
+        "personalization_enabled": bool(manifest.get("repomap_like_personalization_enabled", True)),
+    }
+    agentless_like_config = {
+        "stage2_enabled": bool(manifest.get("agentless_like_stage2_enabled", True)),
+        "stage3_enabled": bool(manifest.get("agentless_like_stage3_enabled", True)),
+        "edit_location_samples": int(manifest.get("agentless_like_edit_location_samples", 4) or 4),
+        "file_branch_top_n": int(manifest.get("agentless_like_file_branch_top_n", 3) or 3),
+        "embed_branch_top_k": int(manifest.get("agentless_like_embed_branch_top_k", 20) or 20),
+        "merge_top_k": int(manifest.get("agentless_like_merge_top_k", 12) or 12),
+        "stage3_context_window_lines": int(manifest.get("agentless_like_stage3_context_window_lines", 10) or 10),
+        "stage3_max_tokens_per_file": int(manifest.get("agentless_like_stage3_max_tokens_per_file", 1200) or 1200),
+        "constrained_candidates_max": int(manifest.get("agentless_like_constrained_candidates_max", 200) or 200),
+        "reject_out_of_candidate_paths": bool(manifest.get("agentless_like_reject_out_of_candidate_paths", True)),
+    }
     manager_model, patch_model = _resolve_model_config(manifest)
     source_prefixes = manifest.get("source_prefixes") or None
     repo_name = manifest.get("repo_name", "")
@@ -920,12 +1408,40 @@ def run_patch_pipeline(
     per_instance_cooldown_s = float(manifest.get("per_instance_cooldown_s", 0.0))
     instance_wall_clock_cap_s = float(manifest.get("instance_wall_clock_cap_s", 0.0))
     api_timeout_s = int(manifest.get("api_timeout_s", 120))
-    run_id = time.strftime("%Y%m%d_%H%M%S")
+    if resume:
+        if not run_dir:
+            print("ERROR: --resume requires --run-dir <path-to-interrupted-stage-1-run>")
+            sys.exit(1)
+        results_path = Path(run_dir)
+        run_id = results_path.name
+    else:
+        run_id, results_path = _allocate_run_output_dir(results_dir)
 
-    results_path = Path(results_dir) / "patch_runs" / run_id
-    results_path.mkdir(parents=True, exist_ok=True)
     patches_path = results_path / "patches"
     patches_path.mkdir(exist_ok=True)
+    repos_root = results_path / "_repos"
+    repos_root.mkdir(exist_ok=True)
+
+    # Load any prior checkpoint (populated if resuming; empty on fresh start)
+    _checkpoint: dict = _load_partial_checkpoint(results_path)
+    if _checkpoint:
+        print(f"Resume mode: {len(_checkpoint)} instances already complete, will skip them.")
+
+    run_meta = {
+        "run_id": run_id,
+        "manifest": str(Path(manifest_path).resolve()),
+        "dataset_name": dataset_name,
+        "split": split,
+        "repo_name": repo_name,
+        "retrieval_method": retrieval_method,
+        "manager_model": manager_model,
+        "patch_model": patch_model,
+        "n_instances_planned": len(instance_ids),
+        "n_workers": int(max(1, n_workers)),
+        "pid": os.getpid(),
+        "provenance": _capture_provenance(manifest_path),
+    }
+    (results_path / "run_meta.json").write_text(json.dumps(run_meta, indent=2), encoding="utf-8")
 
     print(f"Run ID: {run_id}")
     print(f"Dataset: {dataset_name} ({split})")
@@ -936,6 +1452,10 @@ def run_patch_pipeline(
     print(f"Manager max turns: {manager_max_turns}")
     print(f"Patch max output tokens: {patch_max_output_tokens}")
     print(f"Patch max file chars: {patch_max_file_chars}")
+    if retrieval_max_files_for_patch is None:
+        print("Retrieval max files for patch: disabled")
+    else:
+        print(f"Retrieval max files for patch: {retrieval_max_files_for_patch}")
     print(f"Patch redact issue paths: {patch_redact_paths_in_issue_text}")
     print(f"API timeout (s): {api_timeout_s}")
     if instance_wall_clock_cap_s > 0:
@@ -979,302 +1499,458 @@ def run_patch_pipeline(
     for issue in issues:
         by_repo[issue.get("repo", repo_name)].append(issue)
 
-    per_instance_results = []
-    swebench_predictions = {}  # for harness: {instance_id: {...}}
+    # Restore completed instances from checkpoint (empty on fresh run)
+    per_instance_results = [v["per_instance"] for v in _checkpoint.values()]
+    swebench_predictions = {iid: v["prediction"] for iid, v in _checkpoint.items()}
     run_retrieval_setup_tokens = 0
     run_setup_tokens_graph_built = 0
     run_setup_tokens_rag_built = 0
     run_setup_tokens_method_accounted = 0
 
+    def _run_repo_issue_batch(
+        *,
+        repo: str,
+        repo_issues: list[dict],
+        repo_dir: str,
+        checkpoint_snapshot: dict,
+        checkpoint_filename: str,
+        worker_label: str | None = None,
+    ) -> dict:
+        """Run retrieval+patch loop for a chunk of issues against one repo clone."""
+        label_prefix = f"[{worker_label}] " if worker_label else ""
+        local_httpx_client = httpx.Client(timeout=api_timeout_s)
+        local_client = genai.Client(
+            api_key=api_key,
+            http_options=genai_types.HttpOptions(httpx_client=local_httpx_client),
+        )
+
+        try:
+            import git as _git
+            repo_git = _git.Repo(repo_dir)
+            current_commit = None
+            prefixes = tuple(dict.fromkeys(source_prefixes)) if source_prefixes else None
+            from src.evaluation import NO_BASE_COMMIT
+            commit_context_cache: dict[str, dict] = {}
+            patch_agent_cache: dict[str, PatchAgent] = {}
+            det_cfg = {
+                "seed_k": manifest.get("deterministic_seed_k", 8),
+                "depth": manifest.get("deterministic_depth", 2),
+                "neighbor_cap": manifest.get("deterministic_neighbor_cap", 12),
+            }
+
+            local_predictions: dict[str, dict] = {}
+            local_per_instance: list[dict] = []
+            local_setup_tokens = 0
+            local_setup_tokens_graph = 0
+            local_setup_tokens_rag = 0
+            local_setup_tokens_method = 0
+
+            for issue in repo_issues:
+                iid = issue["instance_id"]
+                if iid in checkpoint_snapshot:
+                    print(f"\n  {label_prefix}[{iid}] (skipped — already in checkpoint)")
+                    continue
+                print(f"\n  {label_prefix}[{iid}]")
+                current_commit = _checkout_issue_commit(
+                    repo_git=repo_git,
+                    snapshot_commit=snapshot_commit,
+                    issue=issue,
+                    current_commit=current_commit,
+                    issue_id=iid,
+                )
+                used_commit = repo_git.head.commit.hexsha
+                commit_key = used_commit or NO_BASE_COMMIT
+                if current_commit:
+                    print(f"    {label_prefix}Commit: {current_commit[:12]}")
+                else:
+                    print(f"    {label_prefix}Commit: {used_commit[:12]}")
+                instance_start_monotonic = time.monotonic()
+                instance_deadline = (
+                    instance_start_monotonic + instance_wall_clock_cap_s
+                    if instance_wall_clock_cap_s > 0
+                    else None
+                )
+
+                context = commit_context_cache.get(commit_key)
+                if context is None:
+                    context = _build_method_scoped_commit_context(
+                        retrieval_method=retrieval_method,
+                        repo_dir=repo_dir,
+                        prefixes=prefixes,
+                        client=local_client,
+                        graph_builder_cls=GraphBuilder,
+                        graph_index_cls=GraphIndex,
+                        rag_index_cls=RAGIndex,
+                        validate_commit_context_fn=validate_commit_context,
+                    )
+                    context["used_commit"] = used_commit
+                    commit_context_cache[commit_key] = context
+                    local_setup_tokens += int(context.get("retrieval_setup_tokens", 0) or 0)
+                    local_setup_tokens_graph += int(context.get("setup_tokens_graph_built", 0) or 0)
+                    local_setup_tokens_rag += int(context.get("setup_tokens_rag_built", 0) or 0)
+                    local_setup_tokens_method += int(context.get("setup_tokens_method_accounted", 0) or 0)
+
+                patch_agent = patch_agent_cache.get(commit_key)
+                if patch_agent is None:
+                    patch_agent = PatchAgent(
+                        repo_dir,
+                        local_client,
+                        model=patch_model,
+                        max_file_chars=patch_max_file_chars,
+                        max_output_tokens=patch_max_output_tokens,
+                    )
+                    patch_agent_cache[commit_key] = patch_agent
+
+                # --- Retrieval ---
+                t0 = time.time()
+                retrieval_error = None
+                retrieved_files_pre_cap = 0
+                retrieved_files_post_cap = 0
+                if dry_run:
+                    retrieved_files = issue.get("gold_files", [])[:2]
+                    retrieval_tokens = {"total_tokens": 0, "stop_reason": "dry_run"}
+                else:
+                    try:
+                        retrieved_files, retrieval_tokens = _run_with_rate_limit_backoff(
+                            lambda: _run_retrieval(
+                                issue,
+                                graph=context["graph"],
+                                graph_index=context["graph_index"],
+                                rag_index=context["rag_index"],
+                                bm25_index=context.get("bm25_index"),
+                                client=local_client,
+                                method=retrieval_method,
+                                manager_model=manager_model,
+                                manager_max_turns=manager_max_turns,
+                                deterministic_config=det_cfg,
+                                redact_paths=retrieval_redact_paths_in_issue_text,
+                                rag_symmetric_tools=rag_symmetric_tools,
+                                repo_dir=repo_dir,
+                                include_prefixes=prefixes,
+                                valid_file_paths=context.get("graph_file_paths"),
+                                patch_max_file_chars=patch_max_file_chars,
+                                repomap_config=repomap_config,
+                                agentless_like_config=agentless_like_config,
+                            ),
+                            label=f"retrieval[{iid}]",
+                            max_retries=rate_limit_max_retries,
+                            initial_delay_s=rate_limit_initial_delay_s,
+                            backoff_multiplier=rate_limit_backoff_multiplier,
+                            max_delay_s=rate_limit_max_delay_s,
+                            jitter_s=rate_limit_jitter_s,
+                            deadline_monotonic=instance_deadline,
+                        )
+                    except TimeoutError as exc:
+                        retrieval_error = exc
+                        retrieved_files = []
+                        retrieval_tokens = {
+                            "prompt_tokens": 0,
+                            "candidate_tokens": 0,
+                            "total_tokens": 0,
+                            "tool_calls": 0,
+                            "stop_reason": "timeout_budget_exceeded",
+                            "error": str(exc),
+                        }
+                        print(f"    {label_prefix}Retrieval timed out: {exc}")
+                    except Exception as exc:
+                        retrieval_error = exc
+                        retrieved_files = []
+                        retrieval_tokens = {
+                            "prompt_tokens": 0,
+                            "candidate_tokens": 0,
+                            "total_tokens": 0,
+                            "tool_calls": 0,
+                            "stop_reason": f"retrieval_error:{type(exc).__name__}",
+                            "error": str(exc),
+                        }
+                        print(f"    {label_prefix}Retrieval failed after retries: {type(exc).__name__}")
+
+                retrieved_files, retrieved_files_pre_cap, retrieved_files_post_cap = _cap_retrieved_files(
+                    retrieved_files,
+                    max_files=retrieval_max_files_for_patch,
+                )
+                retrieval_time = time.time() - t0
+                cap_suffix = ""
+                if retrieved_files_post_cap < retrieved_files_pre_cap:
+                    cap_suffix = f" (capped {retrieved_files_pre_cap}->{retrieved_files_post_cap})"
+                print(f"    {label_prefix}Retrieved: {retrieved_files}{cap_suffix}")
+                retrieval_token_steps = [retrieval_tokens]
+
+                # --- Patch generation ---
+                t1 = time.time()
+                flow_result = None
+                if dry_run:
+                    patch_text = None
+                    patch_tokens = {"total_tokens": 0, "stop_reason": "dry_run"}
+                    status = "no_patch"
+                elif retrieval_error is not None:
+                    patch_text = None
+                    patch_tokens = {
+                        "prompt_tokens": 0,
+                        "candidate_tokens": 0,
+                        "total_tokens": 0,
+                        "tool_calls": 0,
+                        "stop_reason": (
+                            "timeout_budget_exceeded"
+                            if isinstance(retrieval_error, TimeoutError)
+                            else "skipped_due_to_retrieval_error"
+                        ),
+                    }
+                    status = "timeout_budget_exceeded" if isinstance(retrieval_error, TimeoutError) else "no_patch"
+                else:
+                    issue_text = prepare_issue_text(
+                        issue.get("problem_statement", ""),
+                        redact_paths=patch_redact_paths_in_issue_text,
+                    )
+
+                    def patch_generate_fn(*, retrieved_files: list[str], correction_context: str | None):
+                        return _run_with_rate_limit_backoff(
+                            lambda: patch_agent.generate_patch(
+                                issue_text,
+                                retrieved_files,
+                                max_turns=patch_max_turns,
+                                correction_context=correction_context,
+                            ),
+                            label=f"patch[{iid}]",
+                            max_retries=rate_limit_max_retries,
+                            initial_delay_s=rate_limit_initial_delay_s,
+                            backoff_multiplier=rate_limit_backoff_multiplier,
+                            max_delay_s=rate_limit_max_delay_s,
+                            jitter_s=rate_limit_jitter_s,
+                            deadline_monotonic=instance_deadline,
+                        )
+
+                    def apply_check_fn(patch_candidate: str):
+                        return _git_apply_check(repo_dir, patch_candidate)
+
+                    def retrieval_retry_fn(*, previous_files: list[str], failure_hint: str):
+                        retry_files, retry_tokens = _run_with_rate_limit_backoff(
+                            lambda: _run_retrieval(
+                                issue,
+                                graph=context["graph"],
+                                graph_index=context["graph_index"],
+                                rag_index=context["rag_index"],
+                                bm25_index=context.get("bm25_index"),
+                                client=local_client,
+                                method=retrieval_method,
+                                manager_model=manager_model,
+                                manager_max_turns=manager_max_turns,
+                                deterministic_config=det_cfg,
+                                redact_paths=retrieval_redact_paths_in_issue_text,
+                                retry_feedback=failure_hint,
+                                rag_symmetric_tools=rag_symmetric_tools,
+                                repo_dir=repo_dir,
+                                include_prefixes=prefixes,
+                                valid_file_paths=context.get("graph_file_paths"),
+                                patch_max_file_chars=patch_max_file_chars,
+                                repomap_config=repomap_config,
+                                agentless_like_config=agentless_like_config,
+                            ),
+                            label=f"retrieval_retry[{iid}]",
+                            max_retries=rate_limit_max_retries,
+                            initial_delay_s=rate_limit_initial_delay_s,
+                            backoff_multiplier=rate_limit_backoff_multiplier,
+                            max_delay_s=rate_limit_max_delay_s,
+                            jitter_s=rate_limit_jitter_s,
+                            deadline_monotonic=instance_deadline,
+                        )
+                        capped_retry_files, retry_pre_cap, retry_post_cap = _cap_retrieved_files(
+                            retry_files,
+                            max_files=retrieval_max_files_for_patch,
+                        )
+                        retry_token_map = dict(retry_tokens or {})
+                        retry_token_map["retrieved_files_pre_cap"] = retry_pre_cap
+                        retry_token_map["retrieved_files_post_cap"] = retry_post_cap
+                        return capped_retry_files, retry_token_map
+
+                    try:
+                        flow_result = _generate_patch_with_retries(
+                            issue_text=issue_text,
+                            initial_retrieved_files=retrieved_files,
+                            patch_generate_fn=patch_generate_fn,
+                            apply_check_fn=apply_check_fn,
+                            retrieval_retry_fn=retrieval_retry_fn,
+                            max_repair_retries=patch_apply_repair_retries,
+                            max_retrieval_retries=patch_retrieval_retry_max,
+                        )
+                        patch_text = flow_result["patch_text"]
+                        patch_tokens = _merge_token_usages(flow_result["patch_tokens_history"])
+                        patch_tokens["attempts"] = len(flow_result["patch_tokens_history"])
+                        patch_tokens["repair_retries_used"] = flow_result["repair_retries_used"]
+                        patch_tokens["apply_failures"] = flow_result["apply_failures"]
+                        status = flow_result["patch_status"]
+                        retrieved_files = flow_result["retrieved_files"]
+
+                        for retry_event in flow_result["retrieval_retry_history"]:
+                            retrieval_token_steps.append(retry_event.get("retrieval_tokens", {}))
+                        if len(retrieval_token_steps) > 1:
+                            retrieval_tokens = _merge_token_usages(retrieval_token_steps)
+                            retrieval_tokens["retrieval_retries_used"] = flow_result["retrieval_retries_used"]
+                    except TimeoutError as exc:
+                        patch_text = None
+                        patch_tokens = {
+                            "prompt_tokens": 0,
+                            "candidate_tokens": 0,
+                            "total_tokens": 0,
+                            "tool_calls": 0,
+                            "stop_reason": "timeout_budget_exceeded",
+                            "error": str(exc),
+                        }
+                        status = "timeout_budget_exceeded"
+                        print(f"    {label_prefix}Patch generation timed out: {exc}")
+                    except Exception as exc:
+                        patch_text = None
+                        patch_tokens = {
+                            "prompt_tokens": 0,
+                            "candidate_tokens": 0,
+                            "total_tokens": 0,
+                            "tool_calls": 0,
+                            "stop_reason": f"patch_error:{type(exc).__name__}",
+                            "error": str(exc),
+                        }
+                        status = "no_patch"
+                        print(f"    {label_prefix}Patch generation failed after retries: {type(exc).__name__}")
+                patch_time = time.time() - t1
+
+                print(f"    {label_prefix}Patch status: {status}")
+
+                if per_instance_cooldown_s > 0 and not dry_run:
+                    time.sleep(per_instance_cooldown_s)
+
+                # Save patch to disk
+                if patch_text and status in {"patched", "apply_failed"}:
+                    patch_file = patches_path / f"{iid}.patch"
+                    patch_file.write_text(patch_text)
+                else:
+                    patch_file = None
+
+                prediction = _make_swebench_prediction(
+                    instance_id=iid,
+                    retrieval_method=retrieval_method,
+                    patch_text=patch_text,
+                    patch_status=status,
+                )
+
+                instance_result = {
+                    "instance_id": iid,
+                    "repo": repo,
+                    "gold_files": issue.get("gold_files", []),
+                    "retrieved_files": retrieved_files,
+                    "retrieved_files_pre_cap": retrieved_files_pre_cap,
+                    "retrieved_files_post_cap": retrieved_files_post_cap,
+                    "retrieval_max_files_for_patch": retrieval_max_files_for_patch,
+                    "patch_status": status,
+                    "patch_file": str(patch_file) if patch_file else None,
+                    "retrieval_tokens": retrieval_tokens,
+                    "patch_tokens": patch_tokens,
+                    "repair_retries_used": int((flow_result or {}).get("repair_retries_used", 0)),
+                    "retrieval_retries_used": int((flow_result or {}).get("retrieval_retries_used", 0)),
+                    "total_tokens": (
+                        int(retrieval_tokens.get("total_tokens", 0) or 0)
+                        + int(patch_tokens.get("total_tokens", 0) or 0)
+                    ),
+                    "retrieval_time_s": round(retrieval_time, 2),
+                    "patch_time_s": round(patch_time, 2),
+                    "total_time_s": round(time.monotonic() - instance_start_monotonic, 2),
+                    "timeout_budget_exceeded": status == "timeout_budget_exceeded",
+                }
+                local_predictions[iid] = prediction
+                local_per_instance.append(instance_result)
+                _flush_instance_to_checkpoint(
+                    run_dir=results_path,
+                    instance_id=iid,
+                    prediction=prediction,
+                    per_instance=instance_result,
+                    checkpoint_filename=checkpoint_filename,
+                )
+
+            return {
+                "predictions": local_predictions,
+                "per_instance": local_per_instance,
+                "retrieval_setup_tokens": local_setup_tokens,
+                "setup_tokens_graph_built": local_setup_tokens_graph,
+                "setup_tokens_rag_built": local_setup_tokens_rag,
+                "setup_tokens_method_accounted": local_setup_tokens_method,
+            }
+        finally:
+            try:
+                local_httpx_client.close()
+            except Exception:
+                pass
+
     for repo, repo_issues in by_repo.items():
         print(f"\n=== Repo: {repo} ({len(repo_issues)} issues) ===")
-        repo_short = repo.split("/")[-1]
-        repo_dir = str(Path.cwd() / f"{repo_short}_repo")
-        clone_repo(repo, repo_dir)
+        repo_slug = _slugify_identifier(repo.replace("/", "_"))
+        base_repo_dir = str((repos_root / f"{repo_slug}_base").resolve())
+        clone_repo(repo, base_repo_dir)
 
-        import git as _git
-        repo_git = _git.Repo(repo_dir)
-        current_commit = None
-        prefixes = tuple(dict.fromkeys(source_prefixes)) if source_prefixes else None
-        from src.evaluation import NO_BASE_COMMIT
-        commit_context_cache: dict[str, dict] = {}
-        patch_agent_cache: dict[str, PatchAgent] = {}
-        det_cfg = {
-            "seed_k": manifest.get("deterministic_seed_k", 8),
-            "depth": manifest.get("deterministic_depth", 2),
-            "neighbor_cap": manifest.get("deterministic_neighbor_cap", 12),
-        }
-
-        for issue in repo_issues:
-            iid = issue["instance_id"]
-            print(f"\n  [{iid}]")
-            current_commit = _checkout_issue_commit(
-                repo_git=repo_git,
-                snapshot_commit=snapshot_commit,
-                issue=issue,
-                current_commit=current_commit,
-                issue_id=iid,
+        if n_workers <= 1:
+            repo_result = _run_repo_issue_batch(
+                repo=repo,
+                repo_issues=repo_issues,
+                repo_dir=base_repo_dir,
+                checkpoint_snapshot=_checkpoint,
+                checkpoint_filename="predictions_partial.jsonl",
+                worker_label=None,
             )
-            used_commit = repo_git.head.commit.hexsha
-            commit_key = used_commit or NO_BASE_COMMIT
-            if current_commit:
-                print(f"    Commit: {current_commit[:12]}")
-            else:
-                print(f"    Commit: {used_commit[:12]}")
-            instance_start_monotonic = time.monotonic()
-            instance_deadline = (
-                instance_start_monotonic + instance_wall_clock_cap_s
-                if instance_wall_clock_cap_s > 0
-                else None
-            )
+            swebench_predictions.update(repo_result["predictions"])
+            per_instance_results.extend(repo_result["per_instance"])
+            run_retrieval_setup_tokens += int(repo_result["retrieval_setup_tokens"] or 0)
+            run_setup_tokens_graph_built += int(repo_result["setup_tokens_graph_built"] or 0)
+            run_setup_tokens_rag_built += int(repo_result["setup_tokens_rag_built"] or 0)
+            run_setup_tokens_method_accounted += int(repo_result["setup_tokens_method_accounted"] or 0)
+            continue
 
-            context = commit_context_cache.get(commit_key)
-            if context is None:
-                context = _build_method_scoped_commit_context(
-                    retrieval_method=retrieval_method,
-                    repo_dir=repo_dir,
-                    prefixes=prefixes,
-                    client=client,
-                    graph_builder_cls=GraphBuilder,
-                    graph_index_cls=GraphIndex,
-                    rag_index_cls=RAGIndex,
-                    validate_commit_context_fn=validate_commit_context,
+        issue_chunks = _distribute_instances(repo_issues, n_workers=n_workers)
+        worker_specs = [(worker_id, chunk) for worker_id, chunk in enumerate(issue_chunks) if chunk]
+        print(
+            f"  Parallel Stage-1: workers={len(worker_specs)} requested={n_workers} "
+            f"chunk_sizes={[len(chunk) for _, chunk in worker_specs]}"
+        )
+
+        worker_futures: dict[concurrent.futures.Future, int] = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(worker_specs))) as pool:
+            for worker_id, chunk in worker_specs:
+                worker_repo_dir = str((repos_root / f"{repo_slug}_worker_{worker_id}").resolve())
+                worker_repo_path = Path(worker_repo_dir)
+                if worker_repo_path.exists() and not (worker_repo_path / ".git").exists():
+                    shutil.rmtree(worker_repo_path)
+                if not worker_repo_path.exists():
+                    subprocess.run(
+                        ["git", "clone", "--shared", "--quiet", base_repo_dir, worker_repo_dir],
+                        check=True,
+                    )
+
+                future = pool.submit(
+                    _run_repo_issue_batch,
+                    repo=repo,
+                    repo_issues=chunk,
+                    repo_dir=worker_repo_dir,
+                    checkpoint_snapshot=_checkpoint,
+                    checkpoint_filename=f"predictions_worker_{worker_id}.jsonl",
+                    worker_label=f"W{worker_id + 1}",
                 )
-                context["used_commit"] = used_commit
-                commit_context_cache[commit_key] = context
-                run_retrieval_setup_tokens += int(context.get("retrieval_setup_tokens", 0) or 0)
-                run_setup_tokens_graph_built += int(context.get("setup_tokens_graph_built", 0) or 0)
-                run_setup_tokens_rag_built += int(context.get("setup_tokens_rag_built", 0) or 0)
-                run_setup_tokens_method_accounted += int(context.get("setup_tokens_method_accounted", 0) or 0)
+                worker_futures[future] = worker_id
 
-            patch_agent = patch_agent_cache.get(commit_key)
-            if patch_agent is None:
-                patch_agent = PatchAgent(
-                    repo_dir,
-                    client,
-                    model=patch_model,
-                    max_file_chars=patch_max_file_chars,
-                    max_output_tokens=patch_max_output_tokens,
+            for future in concurrent.futures.as_completed(worker_futures):
+                worker_id = worker_futures[future]
+                worker_result = future.result()
+                print(
+                    f"  Worker W{worker_id + 1} complete: "
+                    f"{len(worker_result['per_instance'])} new instances"
                 )
-                patch_agent_cache[commit_key] = patch_agent
+                swebench_predictions.update(worker_result["predictions"])
+                per_instance_results.extend(worker_result["per_instance"])
+                run_retrieval_setup_tokens += int(worker_result["retrieval_setup_tokens"] or 0)
+                run_setup_tokens_graph_built += int(worker_result["setup_tokens_graph_built"] or 0)
+                run_setup_tokens_rag_built += int(worker_result["setup_tokens_rag_built"] or 0)
+                run_setup_tokens_method_accounted += int(worker_result["setup_tokens_method_accounted"] or 0)
 
-            # --- Retrieval ---
-            t0 = time.time()
-            retrieval_error = None
-            if dry_run:
-                retrieved_files = issue.get("gold_files", [])[:2]
-                retrieval_tokens = {"total_tokens": 0, "stop_reason": "dry_run"}
-            else:
-                try:
-                    retrieved_files, retrieval_tokens = _run_with_rate_limit_backoff(
-                        lambda: _run_retrieval(
-                            issue,
-                            graph=context["graph"],
-                            graph_index=context["graph_index"],
-                            rag_index=context["rag_index"],
-                            client=client,
-                            method=retrieval_method,
-                            manager_model=manager_model,
-                            manager_max_turns=manager_max_turns,
-                            deterministic_config=det_cfg,
-                            redact_paths=retrieval_redact_paths_in_issue_text,
-                        ),
-                        label=f"retrieval[{iid}]",
-                        max_retries=rate_limit_max_retries,
-                        initial_delay_s=rate_limit_initial_delay_s,
-                        backoff_multiplier=rate_limit_backoff_multiplier,
-                        max_delay_s=rate_limit_max_delay_s,
-                        jitter_s=rate_limit_jitter_s,
-                        deadline_monotonic=instance_deadline,
-                    )
-                except TimeoutError as exc:
-                    retrieval_error = exc
-                    retrieved_files = []
-                    retrieval_tokens = {
-                        "prompt_tokens": 0,
-                        "candidate_tokens": 0,
-                        "total_tokens": 0,
-                        "tool_calls": 0,
-                        "stop_reason": "timeout_budget_exceeded",
-                        "error": str(exc),
-                    }
-                    print(f"    Retrieval timed out: {exc}")
-                except Exception as exc:
-                    retrieval_error = exc
-                    retrieved_files = []
-                    retrieval_tokens = {
-                        "prompt_tokens": 0,
-                        "candidate_tokens": 0,
-                        "total_tokens": 0,
-                        "tool_calls": 0,
-                        "stop_reason": f"retrieval_error:{type(exc).__name__}",
-                        "error": str(exc),
-                    }
-                    print(f"    Retrieval failed after retries: {type(exc).__name__}")
-            retrieval_time = time.time() - t0
-            print(f"    Retrieved: {retrieved_files}")
-            retrieval_token_steps = [retrieval_tokens]
-
-            # --- Patch generation ---
-            t1 = time.time()
-            flow_result = None
-            if dry_run:
-                patch_text = None
-                patch_tokens = {"total_tokens": 0, "stop_reason": "dry_run"}
-                status = "no_patch"
-            elif retrieval_error is not None:
-                patch_text = None
-                patch_tokens = {
-                    "prompt_tokens": 0,
-                    "candidate_tokens": 0,
-                    "total_tokens": 0,
-                    "tool_calls": 0,
-                    "stop_reason": (
-                        "timeout_budget_exceeded"
-                        if isinstance(retrieval_error, TimeoutError)
-                        else "skipped_due_to_retrieval_error"
-                    ),
-                }
-                status = "timeout_budget_exceeded" if isinstance(retrieval_error, TimeoutError) else "no_patch"
-            else:
-                issue_text = prepare_issue_text(
-                    issue.get("problem_statement", ""),
-                    redact_paths=patch_redact_paths_in_issue_text,
-                )
-
-                def patch_generate_fn(*, retrieved_files: list[str], correction_context: str | None):
-                    return _run_with_rate_limit_backoff(
-                        lambda: patch_agent.generate_patch(
-                            issue_text,
-                            retrieved_files,
-                            max_turns=patch_max_turns,
-                            correction_context=correction_context,
-                        ),
-                        label=f"patch[{iid}]",
-                        max_retries=rate_limit_max_retries,
-                        initial_delay_s=rate_limit_initial_delay_s,
-                        backoff_multiplier=rate_limit_backoff_multiplier,
-                        max_delay_s=rate_limit_max_delay_s,
-                        jitter_s=rate_limit_jitter_s,
-                        deadline_monotonic=instance_deadline,
-                    )
-
-                def apply_check_fn(patch_candidate: str):
-                    return _git_apply_check(repo_dir, patch_candidate)
-
-                def retrieval_retry_fn(*, previous_files: list[str], failure_hint: str):
-                    return _run_with_rate_limit_backoff(
-                        lambda: _run_retrieval(
-                            issue,
-                            graph=context["graph"],
-                            graph_index=context["graph_index"],
-                            rag_index=context["rag_index"],
-                            client=client,
-                            method=retrieval_method,
-                            manager_model=manager_model,
-                            manager_max_turns=manager_max_turns,
-                            deterministic_config=det_cfg,
-                            redact_paths=retrieval_redact_paths_in_issue_text,
-                            retry_feedback=failure_hint,
-                        ),
-                        label=f"retrieval_retry[{iid}]",
-                        max_retries=rate_limit_max_retries,
-                        initial_delay_s=rate_limit_initial_delay_s,
-                        backoff_multiplier=rate_limit_backoff_multiplier,
-                        max_delay_s=rate_limit_max_delay_s,
-                        jitter_s=rate_limit_jitter_s,
-                        deadline_monotonic=instance_deadline,
-                    )
-
-                try:
-                    flow_result = _generate_patch_with_retries(
-                        issue_text=issue_text,
-                        initial_retrieved_files=retrieved_files,
-                        patch_generate_fn=patch_generate_fn,
-                        apply_check_fn=apply_check_fn,
-                        retrieval_retry_fn=retrieval_retry_fn,
-                        max_repair_retries=patch_apply_repair_retries,
-                        max_retrieval_retries=patch_retrieval_retry_max,
-                    )
-                    patch_text = flow_result["patch_text"]
-                    patch_tokens = _merge_token_usages(flow_result["patch_tokens_history"])
-                    patch_tokens["attempts"] = len(flow_result["patch_tokens_history"])
-                    patch_tokens["repair_retries_used"] = flow_result["repair_retries_used"]
-                    patch_tokens["apply_failures"] = flow_result["apply_failures"]
-                    status = flow_result["patch_status"]
-                    retrieved_files = flow_result["retrieved_files"]
-
-                    for retry_event in flow_result["retrieval_retry_history"]:
-                        retrieval_token_steps.append(retry_event.get("retrieval_tokens", {}))
-                    if len(retrieval_token_steps) > 1:
-                        retrieval_tokens = _merge_token_usages(retrieval_token_steps)
-                        retrieval_tokens["retrieval_retries_used"] = flow_result["retrieval_retries_used"]
-                except TimeoutError as exc:
-                    patch_text = None
-                    patch_tokens = {
-                        "prompt_tokens": 0,
-                        "candidate_tokens": 0,
-                        "total_tokens": 0,
-                        "tool_calls": 0,
-                        "stop_reason": "timeout_budget_exceeded",
-                        "error": str(exc),
-                    }
-                    status = "timeout_budget_exceeded"
-                    print(f"    Patch generation timed out: {exc}")
-                except Exception as exc:
-                    patch_text = None
-                    patch_tokens = {
-                        "prompt_tokens": 0,
-                        "candidate_tokens": 0,
-                        "total_tokens": 0,
-                        "tool_calls": 0,
-                        "stop_reason": f"patch_error:{type(exc).__name__}",
-                        "error": str(exc),
-                    }
-                    status = "no_patch"
-                    print(f"    Patch generation failed after retries: {type(exc).__name__}")
-            patch_time = time.time() - t1
-
-            print(f"    Patch status: {status}")
-
-            if per_instance_cooldown_s > 0 and not dry_run:
-                time.sleep(per_instance_cooldown_s)
-
-            # Save patch to disk
-            if patch_text and status in {"patched", "apply_failed"}:
-                patch_file = patches_path / f"{iid}.patch"
-                patch_file.write_text(patch_text)
-            else:
-                patch_file = None
-
-            # Build SWE-bench prediction entry
-            swebench_predictions[iid] = _make_swebench_prediction(
-                instance_id=iid,
-                retrieval_method=retrieval_method,
-                patch_text=patch_text,
-                patch_status=status,
-            )
-
-            per_instance_results.append({
-                "instance_id": iid,
-                "repo": repo,
-                "gold_files": issue.get("gold_files", []),
-                "retrieved_files": retrieved_files,
-                "patch_status": status,
-                "patch_file": str(patch_file) if patch_file else None,
-                "retrieval_tokens": retrieval_tokens,
-                "patch_tokens": patch_tokens,
-                "repair_retries_used": int((flow_result or {}).get("repair_retries_used", 0)),
-                "retrieval_retries_used": int((flow_result or {}).get("retrieval_retries_used", 0)),
-                "total_tokens": (
-                    int(retrieval_tokens.get("total_tokens", 0) or 0)
-                    + int(patch_tokens.get("total_tokens", 0) or 0)
-                ),
-                "retrieval_time_s": round(retrieval_time, 2),
-                "patch_time_s": round(patch_time, 2),
-                "total_time_s": round(time.monotonic() - instance_start_monotonic, 2),
-                "timeout_budget_exceeded": status == "timeout_budget_exceeded",
-            })
+    # Rebuild in-memory outputs from checkpoints (partial + worker files) so
+    # summary/predictions remain complete and resume-safe after worker execution.
+    _checkpoint_final = _load_partial_checkpoint(results_path)
+    per_instance_results = [v["per_instance"] for v in _checkpoint_final.values()]
+    swebench_predictions = {iid: v["prediction"] for iid, v in _checkpoint_final.items()}
 
     # Save predictions file for SWE-bench harness
     predictions_path = results_path / "predictions.json"
@@ -1299,6 +1975,7 @@ def run_patch_pipeline(
         "manifest": manifest_path,
         "dataset_name": dataset_name,
         "retrieval_method": retrieval_method,
+        "retrieval_max_files_for_patch": retrieval_max_files_for_patch,
         "n_instances": n_total,
         "n_patched": n_patched,
         "n_apply_ok": robustness["n_apply_ok"],
@@ -1309,6 +1986,7 @@ def run_patch_pipeline(
         "avg_tokens_per_instance": round(total_tokens / n_total, 1) if n_total else 0.0,
         "predictions_path": str(predictions_path),
         "harness_results": None,
+        "harness_run_id": None,
         "per_instance": per_instance_results,
         **cost_fields,
     }
@@ -1328,7 +2006,12 @@ def run_patch_pipeline(
             print("\n=== Running SWE-bench harness evaluation ===")
             try:
                 from swebench.harness.run_evaluation import main as swebench_eval
-                harness_run_id = f"graphmanager_{run_id}"
+                harness_run_id = _build_harness_run_id(
+                    run_id=run_id,
+                    retrieval_method=retrieval_method,
+                    results_path=results_path,
+                )
+                summary["harness_run_id"] = harness_run_id
                 harness_report_dir = results_path / "harness_reports"
                 harness_report_dir.mkdir(exist_ok=True)
 
@@ -1337,13 +2020,13 @@ def run_patch_pipeline(
                     split=split,
                     instance_ids=instance_ids,
                     predictions_path=str(predictions_path),
-                    max_workers=1 if modal else 4,
+                    max_workers=4,  # Modal path ignores this; 4 controls local Docker thread count
                     force_rebuild=False,
                     cache_level="env",
                     clean=False,
                     open_file_limit=4096,
                     run_id=harness_run_id,
-                    timeout=300,
+                    timeout=600,
                     namespace=None,
                     rewrite_reports=False,
                     modal=modal,
@@ -1460,7 +2143,26 @@ def main():
         "--run-dir",
         default=None,
         help="Path to a prior Stage-1 run directory (e.g. results/patch_runs/20260222_210339). "
-             "Used with --evaluate-only.",
+             "Used with --evaluate-only or --resume.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Resume an interrupted Stage-1 run. Requires --run-dir pointing to the interrupted "
+            "run directory. Instances already in predictions_partial.jsonl are skipped; "
+            "new instances are appended."
+        ),
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        metavar="N",
+        help=(
+            "Stage-1 issue-level worker count per manifest (default: 1). "
+            "Each worker uses an isolated repo clone and writes a worker checkpoint file."
+        ),
     )
     args = parser.parse_args()
 
@@ -1472,6 +2174,8 @@ def main():
         dry_run=args.dry_run,
         evaluate_only=args.evaluate_only,
         run_dir=args.run_dir,
+        resume=args.resume,
+        n_workers=args.workers,
     )
 
 

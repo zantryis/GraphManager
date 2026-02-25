@@ -1,0 +1,818 @@
+{
+  "schema_version": "v2",
+  "dataset_name": "SWE-bench/SWE-bench_Verified",
+  "split": "test",
+  "full_run_total_instances": 500,
+  "full_run_repos": 12,
+  "full_run_methods": [
+    "oracle",
+    "gm_progressive",
+    "rag_progressive",
+    "gm_deterministic",
+    "raw_rag_function",
+    "raw_rag_fixed",
+    "bm25",
+    "agentic_cold_start"
+  ],
+  "pilot_repo": "psf/requests",
+  "pilot_n_instances": 8,
+  "pilot_methods": [
+    "oracle",
+    "gm_progressive",
+    "bm25"
+  ],
+  "entries": [
+    {
+      "type": "full",
+      "repo": "astropy/astropy",
+      "method": "agentic_cold_start",
+      "manifest_path": "patch_manifests/v2_verified/astropy_astropy_agentic_cold_start_v1.yaml",
+      "manifest_sha256": "17d05bbfe0fa9dbf337dc2368eb02e7933d7a05b26b28918b03fd6e48a33bc3b",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "astropy/astropy",
+      "method": "bm25",
+      "manifest_path": "patch_manifests/v2_verified/astropy_astropy_bm25_v1.yaml",
+      "manifest_sha256": "62de475797a74703e5dc1e9c1717eb524b35491dd163117f10c6269f06cbdab5",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "astropy/astropy",
+      "method": "gm_deterministic",
+      "manifest_path": "patch_manifests/v2_verified/astropy_astropy_gm_deterministic_v1.yaml",
+      "manifest_sha256": "29bf6ceb73dfc61789679f0e96167e059c7efb35d7a98dc652ad0e372c8a4093",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "astropy/astropy",
+      "method": "gm_progressive",
+      "manifest_path": "patch_manifests/v2_verified/astropy_astropy_gm_progressive_v1.yaml",
+      "manifest_sha256": "30a863b454f9bfcf6e75074f97f0fef5040a7aedea7aa2bbc60258539dee22bd",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "astropy/astropy",
+      "method": "oracle",
+      "manifest_path": "patch_manifests/v2_verified/astropy_astropy_oracle_v1.yaml",
+      "manifest_sha256": "bf406b9da22c00a2d7369be5ef7eee8481fda319fe46ccd2ec7cf79d05a2ad91",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "astropy/astropy",
+      "method": "rag_progressive",
+      "manifest_path": "patch_manifests/v2_verified/astropy_astropy_rag_progressive_v1.yaml",
+      "manifest_sha256": "f4a6e50385feb8af0bfa7d127f9a756150d87f054a68c88d9da58e4ba7772b54",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "astropy/astropy",
+      "method": "raw_rag_fixed",
+      "manifest_path": "patch_manifests/v2_verified/astropy_astropy_raw_rag_fixed_v1.yaml",
+      "manifest_sha256": "b22187eb873d1a99858f55a2769188da057ef42387a89c2ee054c2a14fd0fbe5",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "astropy/astropy",
+      "method": "raw_rag_function",
+      "manifest_path": "patch_manifests/v2_verified/astropy_astropy_raw_rag_function_v1.yaml",
+      "manifest_sha256": "2929d459c8df96e50550522486dee9c292b3b2a2ee667e5c0093696afdc549fa",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "django/django",
+      "method": "agentic_cold_start",
+      "manifest_path": "patch_manifests/v2_verified/django_django_agentic_cold_start_v1.yaml",
+      "manifest_sha256": "874986a8b634e54c98e8972722ee74a2ad52b4e7e76f654ebbca2663857391e0",
+      "n_instances": 231
+    },
+    {
+      "type": "full",
+      "repo": "django/django",
+      "method": "bm25",
+      "manifest_path": "patch_manifests/v2_verified/django_django_bm25_v1.yaml",
+      "manifest_sha256": "61a733259dfb566d3d7efbc78d530c051348f0387cbfa33ee7000bf6eb267afb",
+      "n_instances": 231
+    },
+    {
+      "type": "full",
+      "repo": "django/django",
+      "method": "gm_deterministic",
+      "manifest_path": "patch_manifests/v2_verified/django_django_gm_deterministic_v1.yaml",
+      "manifest_sha256": "649fbac6d7b7341cac846462c60afe034c72c3b9ad6c409141d6ef4c1501bbab",
+      "n_instances": 231
+    },
+    {
+      "type": "full",
+      "repo": "django/django",
+      "method": "gm_progressive",
+      "manifest_path": "patch_manifests/v2_verified/django_django_gm_progressive_v1.yaml",
+      "manifest_sha256": "e521fc25fe34b5d3511f0cd113c2b07fa3a074ce71fa38d5d2f67d32b144aee3",
+      "n_instances": 231
+    },
+    {
+      "type": "full",
+      "repo": "django/django",
+      "method": "oracle",
+      "manifest_path": "patch_manifests/v2_verified/django_django_oracle_v1.yaml",
+      "manifest_sha256": "15371d28d9cfd2401e0f44b7b77be2be0338daa22f43035b1662cb8597b9b072",
+      "n_instances": 231
+    },
+    {
+      "type": "full",
+      "repo": "django/django",
+      "method": "rag_progressive",
+      "manifest_path": "patch_manifests/v2_verified/django_django_rag_progressive_v1.yaml",
+      "manifest_sha256": "b10636a29281b22392b9bbc3ed254edffa8f50236d3f6251fa720981275843bf",
+      "n_instances": 231
+    },
+    {
+      "type": "full",
+      "repo": "django/django",
+      "method": "raw_rag_fixed",
+      "manifest_path": "patch_manifests/v2_verified/django_django_raw_rag_fixed_v1.yaml",
+      "manifest_sha256": "5d380ee4b631442b38a6dbc5154eeefa08ff99ede9e58050a730996e7d133c17",
+      "n_instances": 231
+    },
+    {
+      "type": "full",
+      "repo": "django/django",
+      "method": "raw_rag_function",
+      "manifest_path": "patch_manifests/v2_verified/django_django_raw_rag_function_v1.yaml",
+      "manifest_sha256": "039ee44633c815292f82028e7b9709bceac3d5988447a5b68b231612be07afa8",
+      "n_instances": 231
+    },
+    {
+      "type": "full",
+      "repo": "matplotlib/matplotlib",
+      "method": "agentic_cold_start",
+      "manifest_path": "patch_manifests/v2_verified/matplotlib_matplotlib_agentic_cold_start_v1.yaml",
+      "manifest_sha256": "a110495d22cb216b8f4a4b9ec34bb4286809dfa3d986bc366220eade9de8243d",
+      "n_instances": 34
+    },
+    {
+      "type": "full",
+      "repo": "matplotlib/matplotlib",
+      "method": "bm25",
+      "manifest_path": "patch_manifests/v2_verified/matplotlib_matplotlib_bm25_v1.yaml",
+      "manifest_sha256": "96289464b7fc82dc602c885d85acec38be1ae506fc8ed8f518f77641089141bf",
+      "n_instances": 34
+    },
+    {
+      "type": "full",
+      "repo": "matplotlib/matplotlib",
+      "method": "gm_deterministic",
+      "manifest_path": "patch_manifests/v2_verified/matplotlib_matplotlib_gm_deterministic_v1.yaml",
+      "manifest_sha256": "23ce4201c6c48efc083a08bdf28465ea7d02636f974bd06d87bbe956903de179",
+      "n_instances": 34
+    },
+    {
+      "type": "full",
+      "repo": "matplotlib/matplotlib",
+      "method": "gm_progressive",
+      "manifest_path": "patch_manifests/v2_verified/matplotlib_matplotlib_gm_progressive_v1.yaml",
+      "manifest_sha256": "c56c957aebbcffbd5200b053d7a5b4585f51891cf3d9fd5bb5a0bcacde9b6c5e",
+      "n_instances": 34
+    },
+    {
+      "type": "full",
+      "repo": "matplotlib/matplotlib",
+      "method": "oracle",
+      "manifest_path": "patch_manifests/v2_verified/matplotlib_matplotlib_oracle_v1.yaml",
+      "manifest_sha256": "e64982a9b3b46df6143cc2ec3cefaffd35276c944de62f132aec44b15d219d62",
+      "n_instances": 34
+    },
+    {
+      "type": "full",
+      "repo": "matplotlib/matplotlib",
+      "method": "rag_progressive",
+      "manifest_path": "patch_manifests/v2_verified/matplotlib_matplotlib_rag_progressive_v1.yaml",
+      "manifest_sha256": "9fbdd19094b3b8fcef4f1b09fc0880a8404d4a59d5ec9b0aa378fecbb129ae5b",
+      "n_instances": 34
+    },
+    {
+      "type": "full",
+      "repo": "matplotlib/matplotlib",
+      "method": "raw_rag_fixed",
+      "manifest_path": "patch_manifests/v2_verified/matplotlib_matplotlib_raw_rag_fixed_v1.yaml",
+      "manifest_sha256": "242f9aefdc9f5abbb62cf588cd45247d9c30c4a017aa97e425628422414d827c",
+      "n_instances": 34
+    },
+    {
+      "type": "full",
+      "repo": "matplotlib/matplotlib",
+      "method": "raw_rag_function",
+      "manifest_path": "patch_manifests/v2_verified/matplotlib_matplotlib_raw_rag_function_v1.yaml",
+      "manifest_sha256": "a3dc6f22ae676d2aa48b23012f6e26ed3fc076ef51fb928bc656b2aa53996593",
+      "n_instances": 34
+    },
+    {
+      "type": "full",
+      "repo": "mwaskom/seaborn",
+      "method": "agentic_cold_start",
+      "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_agentic_cold_start_v1.yaml",
+      "manifest_sha256": "3b22d874e0c87f48f78572f1421106a6a1b6d203bd2fcf506404d4e8cc83ec0d",
+      "n_instances": 2
+    },
+    {
+      "type": "full",
+      "repo": "mwaskom/seaborn",
+      "method": "bm25",
+      "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_bm25_v1.yaml",
+      "manifest_sha256": "0cfea84e0205233dad411df9949a8e2c3d18807cec9c8473a0040404787094e0",
+      "n_instances": 2
+    },
+    {
+      "type": "full",
+      "repo": "mwaskom/seaborn",
+      "method": "gm_deterministic",
+      "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_gm_deterministic_v1.yaml",
+      "manifest_sha256": "8c6f4243c0b038792441ad1619dd3c9f28096dbb009e1adb5d289860351a9bb1",
+      "n_instances": 2
+    },
+    {
+      "type": "full",
+      "repo": "mwaskom/seaborn",
+      "method": "gm_progressive",
+      "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_gm_progressive_v1.yaml",
+      "manifest_sha256": "1ca5a9034668c110d0910fe802264d2092f8e15db804e4eb86f1bed0232c4c74",
+      "n_instances": 2
+    },
+    {
+      "type": "full",
+      "repo": "mwaskom/seaborn",
+      "method": "oracle",
+      "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_oracle_v1.yaml",
+      "manifest_sha256": "cf6ed58fb3daf8ec823d00fb222245425f25c62d8b08ad0e4eeedadcb60a5119",
+      "n_instances": 2
+    },
+    {
+      "type": "full",
+      "repo": "mwaskom/seaborn",
+      "method": "rag_progressive",
+      "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_rag_progressive_v1.yaml",
+      "manifest_sha256": "9cf7f628ddc7a2661f326075670616b18fdbd2992bfb5005ab1559471a42686c",
+      "n_instances": 2
+    },
+    {
+      "type": "full",
+      "repo": "mwaskom/seaborn",
+      "method": "raw_rag_fixed",
+      "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_raw_rag_fixed_v1.yaml",
+      "manifest_sha256": "f29c0e438c93babb928dddc6e8d9fbd2fa8ee24419a4e6a6fa01f9280cd81a18",
+      "n_instances": 2
+    },
+    {
+      "type": "full",
+      "repo": "mwaskom/seaborn",
+      "method": "raw_rag_function",
+      "manifest_path": "patch_manifests/v2_verified/mwaskom_seaborn_raw_rag_function_v1.yaml",
+      "manifest_sha256": "ad921c929f2db83995bbe63b5e5f46ce15d37b9015a2414e7a305e49f21633d1",
+      "n_instances": 2
+    },
+    {
+      "type": "full",
+      "repo": "pallets/flask",
+      "method": "agentic_cold_start",
+      "manifest_path": "patch_manifests/v2_verified/pallets_flask_agentic_cold_start_v1.yaml",
+      "manifest_sha256": "4cd956fae7abf4ab010381dad258900eaaf4a7ed989c985a4d3d6a35beed1dbc",
+      "n_instances": 1
+    },
+    {
+      "type": "full",
+      "repo": "pallets/flask",
+      "method": "bm25",
+      "manifest_path": "patch_manifests/v2_verified/pallets_flask_bm25_v1.yaml",
+      "manifest_sha256": "06ebdb39e513576be91444031dd7f51f00f6ac9bb2a8890f8f3ddf9ed7fff905",
+      "n_instances": 1
+    },
+    {
+      "type": "full",
+      "repo": "pallets/flask",
+      "method": "gm_deterministic",
+      "manifest_path": "patch_manifests/v2_verified/pallets_flask_gm_deterministic_v1.yaml",
+      "manifest_sha256": "4d4ecb1f110a472edb820b4a7991e2e2ec001fda9abf7bea48bd9a6255c166d6",
+      "n_instances": 1
+    },
+    {
+      "type": "full",
+      "repo": "pallets/flask",
+      "method": "gm_progressive",
+      "manifest_path": "patch_manifests/v2_verified/pallets_flask_gm_progressive_v1.yaml",
+      "manifest_sha256": "53b518f89f244ccb9348c4c73822c0433854da74d299b48ad042c5c97763b04e",
+      "n_instances": 1
+    },
+    {
+      "type": "full",
+      "repo": "pallets/flask",
+      "method": "oracle",
+      "manifest_path": "patch_manifests/v2_verified/pallets_flask_oracle_v1.yaml",
+      "manifest_sha256": "f34bcbb17ebd06a7d0680b9f7fdaab036368653492221ca05a670e06adeba677",
+      "n_instances": 1
+    },
+    {
+      "type": "full",
+      "repo": "pallets/flask",
+      "method": "rag_progressive",
+      "manifest_path": "patch_manifests/v2_verified/pallets_flask_rag_progressive_v1.yaml",
+      "manifest_sha256": "b6a0ce257b3babfb050a3853bc79b613e6ad78a3f0cd28bd26f1b33f6044aa53",
+      "n_instances": 1
+    },
+    {
+      "type": "full",
+      "repo": "pallets/flask",
+      "method": "raw_rag_fixed",
+      "manifest_path": "patch_manifests/v2_verified/pallets_flask_raw_rag_fixed_v1.yaml",
+      "manifest_sha256": "1694cf47ed72b5898493a954180ee4b7a16f25b3427076a2370e75fb08cce828",
+      "n_instances": 1
+    },
+    {
+      "type": "full",
+      "repo": "pallets/flask",
+      "method": "raw_rag_function",
+      "manifest_path": "patch_manifests/v2_verified/pallets_flask_raw_rag_function_v1.yaml",
+      "manifest_sha256": "b5c1a6a6677a5a3e424bce9189478eabaccb89ebe7332a1d4b827e2b1e613df6",
+      "n_instances": 1
+    },
+    {
+      "type": "full",
+      "repo": "psf/requests",
+      "method": "agentic_cold_start",
+      "manifest_path": "patch_manifests/v2_verified/psf_requests_agentic_cold_start_v1.yaml",
+      "manifest_sha256": "0689b6a639d0d802d19384722fea220066d2c55fd48a2c419aee3e9c585b2f17",
+      "n_instances": 8
+    },
+    {
+      "type": "full",
+      "repo": "psf/requests",
+      "method": "bm25",
+      "manifest_path": "patch_manifests/v2_verified/psf_requests_bm25_v1.yaml",
+      "manifest_sha256": "0f9763349993e8c696f64d079a1f8a3eaddaa1da6ad6841530f10f9af6f875ca",
+      "n_instances": 8
+    },
+    {
+      "type": "full",
+      "repo": "psf/requests",
+      "method": "gm_deterministic",
+      "manifest_path": "patch_manifests/v2_verified/psf_requests_gm_deterministic_v1.yaml",
+      "manifest_sha256": "df743743d313150324c36233c3ce89d45d22b61ec15f2d6c75dba6d88411f831",
+      "n_instances": 8
+    },
+    {
+      "type": "full",
+      "repo": "psf/requests",
+      "method": "gm_progressive",
+      "manifest_path": "patch_manifests/v2_verified/psf_requests_gm_progressive_v1.yaml",
+      "manifest_sha256": "ce89caa412a5ab913a1d269c8bc2b98ae49370f09cb4c22e4f0772a08eefee7d",
+      "n_instances": 8
+    },
+    {
+      "type": "full",
+      "repo": "psf/requests",
+      "method": "oracle",
+      "manifest_path": "patch_manifests/v2_verified/psf_requests_oracle_v1.yaml",
+      "manifest_sha256": "7ffc52d2133fefdf3d6b69a7163071c40bebf5382eef5ad9553b065b40656d1a",
+      "n_instances": 8
+    },
+    {
+      "type": "full",
+      "repo": "psf/requests",
+      "method": "rag_progressive",
+      "manifest_path": "patch_manifests/v2_verified/psf_requests_rag_progressive_v1.yaml",
+      "manifest_sha256": "70a52a0fe9575bbc2a913d94fa2bea2b04e9ad2be45bee5785e15d5da61923ba",
+      "n_instances": 8
+    },
+    {
+      "type": "full",
+      "repo": "psf/requests",
+      "method": "raw_rag_fixed",
+      "manifest_path": "patch_manifests/v2_verified/psf_requests_raw_rag_fixed_v1.yaml",
+      "manifest_sha256": "a50ec491a4a530e87547a94ae086bffae2f2c70b87929449e9ca455d57f0f60e",
+      "n_instances": 8
+    },
+    {
+      "type": "full",
+      "repo": "psf/requests",
+      "method": "raw_rag_function",
+      "manifest_path": "patch_manifests/v2_verified/psf_requests_raw_rag_function_v1.yaml",
+      "manifest_sha256": "abd482c93779ccb5d8c8b1fd3a4ae006dfed16a0c3fc24e8eedc1f4774611054",
+      "n_instances": 8
+    },
+    {
+      "type": "full",
+      "repo": "pydata/xarray",
+      "method": "agentic_cold_start",
+      "manifest_path": "patch_manifests/v2_verified/pydata_xarray_agentic_cold_start_v1.yaml",
+      "manifest_sha256": "0d776bd1b196ccc52202f41a238d66f84f75f626f6d85adecf4022da80357467",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "pydata/xarray",
+      "method": "bm25",
+      "manifest_path": "patch_manifests/v2_verified/pydata_xarray_bm25_v1.yaml",
+      "manifest_sha256": "1f3c90d54e3aea698f74b16c16f42bb55dca3fed5a703d391e15bb3a38f3c6d3",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "pydata/xarray",
+      "method": "gm_deterministic",
+      "manifest_path": "patch_manifests/v2_verified/pydata_xarray_gm_deterministic_v1.yaml",
+      "manifest_sha256": "3e7fc3c9fc4b7196ce7bbabe23b00375dbada547840b329189f10ebf4a038c98",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "pydata/xarray",
+      "method": "gm_progressive",
+      "manifest_path": "patch_manifests/v2_verified/pydata_xarray_gm_progressive_v1.yaml",
+      "manifest_sha256": "439d5b0bc37eb710cd95f67b367659842fb71d499ec267fcd49550811a2afcdb",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "pydata/xarray",
+      "method": "oracle",
+      "manifest_path": "patch_manifests/v2_verified/pydata_xarray_oracle_v1.yaml",
+      "manifest_sha256": "c09306b0685d1444796facfa5fbe1625c008f2d277a88960b8e9aca343b3b207",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "pydata/xarray",
+      "method": "rag_progressive",
+      "manifest_path": "patch_manifests/v2_verified/pydata_xarray_rag_progressive_v1.yaml",
+      "manifest_sha256": "4d25a02ce1c36502fc979ee87d27dd459019dff3e67569990c5ac14e3fc89bb7",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "pydata/xarray",
+      "method": "raw_rag_fixed",
+      "manifest_path": "patch_manifests/v2_verified/pydata_xarray_raw_rag_fixed_v1.yaml",
+      "manifest_sha256": "8f4ccfbbd20bfa8734382e91a1691efd910d2031e493c49fc99c875cf6af286e",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "pydata/xarray",
+      "method": "raw_rag_function",
+      "manifest_path": "patch_manifests/v2_verified/pydata_xarray_raw_rag_function_v1.yaml",
+      "manifest_sha256": "6c7d72e8adba95d309a00bdae45179a481c32a6f485089d15a9a5f4861e56d60",
+      "n_instances": 22
+    },
+    {
+      "type": "full",
+      "repo": "pylint-dev/pylint",
+      "method": "agentic_cold_start",
+      "manifest_path": "patch_manifests/v2_verified/pylint_dev_pylint_agentic_cold_start_v1.yaml",
+      "manifest_sha256": "8043fa04492c1e26a5cf6f8ddd674b8b7162a2e60d6a884fb9b6d7b505f3bb9a",
+      "n_instances": 10
+    },
+    {
+      "type": "full",
+      "repo": "pylint-dev/pylint",
+      "method": "bm25",
+      "manifest_path": "patch_manifests/v2_verified/pylint_dev_pylint_bm25_v1.yaml",
+      "manifest_sha256": "9f69b95eb72cb460662a3fc4b4f6fbf5d82bfdb1a5e22d41fba009de7c0ea8c9",
+      "n_instances": 10
+    },
+    {
+      "type": "full",
+      "repo": "pylint-dev/pylint",
+      "method": "gm_deterministic",
+      "manifest_path": "patch_manifests/v2_verified/pylint_dev_pylint_gm_deterministic_v1.yaml",
+      "manifest_sha256": "47324cbab78b2e5dbcaf1debd9fe79137e552be65736b33a39af3a462ef1fb5d",
+      "n_instances": 10
+    },
+    {
+      "type": "full",
+      "repo": "pylint-dev/pylint",
+      "method": "gm_progressive",
+      "manifest_path": "patch_manifests/v2_verified/pylint_dev_pylint_gm_progressive_v1.yaml",
+      "manifest_sha256": "3c27508c2d5e03dcad4cc747bfc18013de27395d4c57a9581be26992fd223731",
+      "n_instances": 10
+    },
+    {
+      "type": "full",
+      "repo": "pylint-dev/pylint",
+      "method": "oracle",
+      "manifest_path": "patch_manifests/v2_verified/pylint_dev_pylint_oracle_v1.yaml",
+      "manifest_sha256": "930094522139c43261c35c5c79773d48095b4a1c3b16bc85e2a8715a2385b6e7",
+      "n_instances": 10
+    },
+    {
+      "type": "full",
+      "repo": "pylint-dev/pylint",
+      "method": "rag_progressive",
+      "manifest_path": "patch_manifests/v2_verified/pylint_dev_pylint_rag_progressive_v1.yaml",
+      "manifest_sha256": "8bc1b23a61959aa341248aefb768b342aa1406037747bc7db03b1c12d9f1855b",
+      "n_instances": 10
+    },
+    {
+      "type": "full",
+      "repo": "pylint-dev/pylint",
+      "method": "raw_rag_fixed",
+      "manifest_path": "patch_manifests/v2_verified/pylint_dev_pylint_raw_rag_fixed_v1.yaml",
+      "manifest_sha256": "60cd211969238b8f3772afbe3628bbcde5040c2d24384f4e81326d089ab0db75",
+      "n_instances": 10
+    },
+    {
+      "type": "full",
+      "repo": "pylint-dev/pylint",
+      "method": "raw_rag_function",
+      "manifest_path": "patch_manifests/v2_verified/pylint_dev_pylint_raw_rag_function_v1.yaml",
+      "manifest_sha256": "5f06668ae9b22a50e044b738ace4d708fb065d1ebc1e45f0501a66d134ee2e96",
+      "n_instances": 10
+    },
+    {
+      "type": "full",
+      "repo": "pytest-dev/pytest",
+      "method": "agentic_cold_start",
+      "manifest_path": "patch_manifests/v2_verified/pytest_dev_pytest_agentic_cold_start_v1.yaml",
+      "manifest_sha256": "0f8533a9936272d88ed360c5ddbae95300d675e4e10f9d59e8837aa324c618c8",
+      "n_instances": 19
+    },
+    {
+      "type": "full",
+      "repo": "pytest-dev/pytest",
+      "method": "bm25",
+      "manifest_path": "patch_manifests/v2_verified/pytest_dev_pytest_bm25_v1.yaml",
+      "manifest_sha256": "2c26e37ff49afb1e9e24a4f2cf96cff742a1c52c7e469f8cbc1f26683b39ab52",
+      "n_instances": 19
+    },
+    {
+      "type": "full",
+      "repo": "pytest-dev/pytest",
+      "method": "gm_deterministic",
+      "manifest_path": "patch_manifests/v2_verified/pytest_dev_pytest_gm_deterministic_v1.yaml",
+      "manifest_sha256": "166012f4e822d18dbd5100198549b5bd5d7fc94abc00daf72cda55eeb66ea06e",
+      "n_instances": 19
+    },
+    {
+      "type": "full",
+      "repo": "pytest-dev/pytest",
+      "method": "gm_progressive",
+      "manifest_path": "patch_manifests/v2_verified/pytest_dev_pytest_gm_progressive_v1.yaml",
+      "manifest_sha256": "3cd302cb4199c1d113741e1c19da858b1be5b062df5f6e36a2446d2dbfa41f48",
+      "n_instances": 19
+    },
+    {
+      "type": "full",
+      "repo": "pytest-dev/pytest",
+      "method": "oracle",
+      "manifest_path": "patch_manifests/v2_verified/pytest_dev_pytest_oracle_v1.yaml",
+      "manifest_sha256": "c6068cdc40153836627c7f1edcbfce5a75452470a59b1475e04772fa6422c2c6",
+      "n_instances": 19
+    },
+    {
+      "type": "full",
+      "repo": "pytest-dev/pytest",
+      "method": "rag_progressive",
+      "manifest_path": "patch_manifests/v2_verified/pytest_dev_pytest_rag_progressive_v1.yaml",
+      "manifest_sha256": "093cbae0b61231ae6b95fbc6ba161e75b17a6c3449c084c83ab9000b537830f2",
+      "n_instances": 19
+    },
+    {
+      "type": "full",
+      "repo": "pytest-dev/pytest",
+      "method": "raw_rag_fixed",
+      "manifest_path": "patch_manifests/v2_verified/pytest_dev_pytest_raw_rag_fixed_v1.yaml",
+      "manifest_sha256": "8b77dd42c0228968d4e69422be85888662124064545673f15fa1b2c37a59835b",
+      "n_instances": 19
+    },
+    {
+      "type": "full",
+      "repo": "pytest-dev/pytest",
+      "method": "raw_rag_function",
+      "manifest_path": "patch_manifests/v2_verified/pytest_dev_pytest_raw_rag_function_v1.yaml",
+      "manifest_sha256": "2da1e38fa6185590c0fbf70e89f7b0d59a146e48e661e353c7dd129ccaa019ae",
+      "n_instances": 19
+    },
+    {
+      "type": "full",
+      "repo": "scikit-learn/scikit-learn",
+      "method": "agentic_cold_start",
+      "manifest_path": "patch_manifests/v2_verified/scikit_learn_scikit_learn_agentic_cold_start_v1.yaml",
+      "manifest_sha256": "accc41f8e55f95940e7e3d6a912f15ea35fc56c195ae0d7d2f794f5251b8dad2",
+      "n_instances": 32
+    },
+    {
+      "type": "full",
+      "repo": "scikit-learn/scikit-learn",
+      "method": "bm25",
+      "manifest_path": "patch_manifests/v2_verified/scikit_learn_scikit_learn_bm25_v1.yaml",
+      "manifest_sha256": "f8c5afbbedf61e0f85c3c4f3a3f351427d29a7df9cb75f4772506819bf2b96bb",
+      "n_instances": 32
+    },
+    {
+      "type": "full",
+      "repo": "scikit-learn/scikit-learn",
+      "method": "gm_deterministic",
+      "manifest_path": "patch_manifests/v2_verified/scikit_learn_scikit_learn_gm_deterministic_v1.yaml",
+      "manifest_sha256": "a0419b68847c075720f8279710bac36e9fd78d823e31a7cafbf4ae60ee4375fd",
+      "n_instances": 32
+    },
+    {
+      "type": "full",
+      "repo": "scikit-learn/scikit-learn",
+      "method": "gm_progressive",
+      "manifest_path": "patch_manifests/v2_verified/scikit_learn_scikit_learn_gm_progressive_v1.yaml",
+      "manifest_sha256": "827a8554120638056ac3b2d244500b0d290cd12a38b3f2bd04e68145265e9f5f",
+      "n_instances": 32
+    },
+    {
+      "type": "full",
+      "repo": "scikit-learn/scikit-learn",
+      "method": "oracle",
+      "manifest_path": "patch_manifests/v2_verified/scikit_learn_scikit_learn_oracle_v1.yaml",
+      "manifest_sha256": "a982195e2b95f40e9a3e014160c6d3f7f5cec71fb648435d6c8c4e69418407ec",
+      "n_instances": 32
+    },
+    {
+      "type": "full",
+      "repo": "scikit-learn/scikit-learn",
+      "method": "rag_progressive",
+      "manifest_path": "patch_manifests/v2_verified/scikit_learn_scikit_learn_rag_progressive_v1.yaml",
+      "manifest_sha256": "9f4e5029798ac9a0600c1f966c669de1859cf9561ca2534dc949d96d20caa81f",
+      "n_instances": 32
+    },
+    {
+      "type": "full",
+      "repo": "scikit-learn/scikit-learn",
+      "method": "raw_rag_fixed",
+      "manifest_path": "patch_manifests/v2_verified/scikit_learn_scikit_learn_raw_rag_fixed_v1.yaml",
+      "manifest_sha256": "e1f3029f76ec87ea6ddc63ce27388bca31719127e79686231dc5da5507ab5424",
+      "n_instances": 32
+    },
+    {
+      "type": "full",
+      "repo": "scikit-learn/scikit-learn",
+      "method": "raw_rag_function",
+      "manifest_path": "patch_manifests/v2_verified/scikit_learn_scikit_learn_raw_rag_function_v1.yaml",
+      "manifest_sha256": "c8241221323c4839fc53ebef0d158b644d8d9879e2cf7310d0927cf2f8790c69",
+      "n_instances": 32
+    },
+    {
+      "type": "full",
+      "repo": "sphinx-doc/sphinx",
+      "method": "agentic_cold_start",
+      "manifest_path": "patch_manifests/v2_verified/sphinx_doc_sphinx_agentic_cold_start_v1.yaml",
+      "manifest_sha256": "070bf41bce664f522b48058034111b15c05b544f37515bffbc7d43c2566a812b",
+      "n_instances": 44
+    },
+    {
+      "type": "full",
+      "repo": "sphinx-doc/sphinx",
+      "method": "bm25",
+      "manifest_path": "patch_manifests/v2_verified/sphinx_doc_sphinx_bm25_v1.yaml",
+      "manifest_sha256": "6a611c7c5a02ad0039fe137ace077d1eb39c1236e8b544ad2448a053ae09cd4f",
+      "n_instances": 44
+    },
+    {
+      "type": "full",
+      "repo": "sphinx-doc/sphinx",
+      "method": "gm_deterministic",
+      "manifest_path": "patch_manifests/v2_verified/sphinx_doc_sphinx_gm_deterministic_v1.yaml",
+      "manifest_sha256": "ae10f7ede3642191c1ab02a2ebeb7f192f2e7a4438768849da84803b853a7da5",
+      "n_instances": 44
+    },
+    {
+      "type": "full",
+      "repo": "sphinx-doc/sphinx",
+      "method": "gm_progressive",
+      "manifest_path": "patch_manifests/v2_verified/sphinx_doc_sphinx_gm_progressive_v1.yaml",
+      "manifest_sha256": "7de41b96b7b98fbb40c86eb95c8754f72ee063cfbef1197d05708632b66a3c89",
+      "n_instances": 44
+    },
+    {
+      "type": "full",
+      "repo": "sphinx-doc/sphinx",
+      "method": "oracle",
+      "manifest_path": "patch_manifests/v2_verified/sphinx_doc_sphinx_oracle_v1.yaml",
+      "manifest_sha256": "effd19819a1774196ef476d10b9f9054f54dba6eebf52d6bb7916efae37af813",
+      "n_instances": 44
+    },
+    {
+      "type": "full",
+      "repo": "sphinx-doc/sphinx",
+      "method": "rag_progressive",
+      "manifest_path": "patch_manifests/v2_verified/sphinx_doc_sphinx_rag_progressive_v1.yaml",
+      "manifest_sha256": "d4e5f14553dfa8814badc2b53d5912aa864ab00bf1920c53be7331c6e03d2285",
+      "n_instances": 44
+    },
+    {
+      "type": "full",
+      "repo": "sphinx-doc/sphinx",
+      "method": "raw_rag_fixed",
+      "manifest_path": "patch_manifests/v2_verified/sphinx_doc_sphinx_raw_rag_fixed_v1.yaml",
+      "manifest_sha256": "2c484aef7199a029e00c9af5bec72ec023bda98bb0be5058f4975fbdb639e87f",
+      "n_instances": 44
+    },
+    {
+      "type": "full",
+      "repo": "sphinx-doc/sphinx",
+      "method": "raw_rag_function",
+      "manifest_path": "patch_manifests/v2_verified/sphinx_doc_sphinx_raw_rag_function_v1.yaml",
+      "manifest_sha256": "ef8ccaa26cf392a59de75b47da29c6b4d5fae67a118f8a549fb6f3911f6f8e17",
+      "n_instances": 44
+    },
+    {
+      "type": "full",
+      "repo": "sympy/sympy",
+      "method": "agentic_cold_start",
+      "manifest_path": "patch_manifests/v2_verified/sympy_sympy_agentic_cold_start_v1.yaml",
+      "manifest_sha256": "f94d61077287d54727494a33cd22654e60a00d0b82fdb9bb163972f98b78eb61",
+      "n_instances": 75
+    },
+    {
+      "type": "full",
+      "repo": "sympy/sympy",
+      "method": "bm25",
+      "manifest_path": "patch_manifests/v2_verified/sympy_sympy_bm25_v1.yaml",
+      "manifest_sha256": "3fcf20d64a8190fbd6b8991283aececbdc404c9c38c88ef61e724f25680e3966",
+      "n_instances": 75
+    },
+    {
+      "type": "full",
+      "repo": "sympy/sympy",
+      "method": "gm_deterministic",
+      "manifest_path": "patch_manifests/v2_verified/sympy_sympy_gm_deterministic_v1.yaml",
+      "manifest_sha256": "b4a92b93296fddebeded162a09a52c934280e313c1b6ecba4a35928717a87571",
+      "n_instances": 75
+    },
+    {
+      "type": "full",
+      "repo": "sympy/sympy",
+      "method": "gm_progressive",
+      "manifest_path": "patch_manifests/v2_verified/sympy_sympy_gm_progressive_v1.yaml",
+      "manifest_sha256": "3c9e1e00490661c03a54cd7f36dd71f101557861e08875fa7aec47edc4916914",
+      "n_instances": 75
+    },
+    {
+      "type": "full",
+      "repo": "sympy/sympy",
+      "method": "oracle",
+      "manifest_path": "patch_manifests/v2_verified/sympy_sympy_oracle_v1.yaml",
+      "manifest_sha256": "2fdbd9ef46fa937a53a0c3f9ceca813df50e3387d367a31d816d226b6e3fe915",
+      "n_instances": 75
+    },
+    {
+      "type": "full",
+      "repo": "sympy/sympy",
+      "method": "rag_progressive",
+      "manifest_path": "patch_manifests/v2_verified/sympy_sympy_rag_progressive_v1.yaml",
+      "manifest_sha256": "f3c7dd30d60330bbdd504cc367ba47cd20767ca42d68f96626d23c6be8e30b69",
+      "n_instances": 75
+    },
+    {
+      "type": "full",
+      "repo": "sympy/sympy",
+      "method": "raw_rag_fixed",
+      "manifest_path": "patch_manifests/v2_verified/sympy_sympy_raw_rag_fixed_v1.yaml",
+      "manifest_sha256": "51bca3505e58d90be0a398663f5d47c05075915f5f2c2c26cc36c61477db4596",
+      "n_instances": 75
+    },
+    {
+      "type": "full",
+      "repo": "sympy/sympy",
+      "method": "raw_rag_function",
+      "manifest_path": "patch_manifests/v2_verified/sympy_sympy_raw_rag_function_v1.yaml",
+      "manifest_sha256": "a01969d1999669116f345e52216518da9b8b46428366a550c93ce7b2ec212619",
+      "n_instances": 75
+    },
+    {
+      "type": "pilot",
+      "repo": "psf/requests",
+      "method": "bm25",
+      "manifest_path": "patch_manifests/v2_verified/pilot_bm25_v1.yaml",
+      "manifest_sha256": "0f9763349993e8c696f64d079a1f8a3eaddaa1da6ad6841530f10f9af6f875ca",
+      "n_instances": 8
+    },
+    {
+      "type": "pilot",
+      "repo": "psf/requests",
+      "method": "gm_progressive",
+      "manifest_path": "patch_manifests/v2_verified/pilot_gm_progressive_v1.yaml",
+      "manifest_sha256": "ce89caa412a5ab913a1d269c8bc2b98ae49370f09cb4c22e4f0772a08eefee7d",
+      "n_instances": 8
+    },
+    {
+      "type": "pilot",
+      "repo": "psf/requests",
+      "method": "oracle",
+      "manifest_path": "patch_manifests/v2_verified/pilot_oracle_v1.yaml",
+      "manifest_sha256": "7ffc52d2133fefdf3d6b69a7163071c40bebf5382eef5ad9553b065b40656d1a",
+      "n_instances": 8
+    }
+  ]
+}

@@ -21,6 +21,7 @@ env/
 # Experiment results and logs (generated data, up to hundreds of MB)
 results/
 logs/
+graphmanager-*.json
 
 # LaTeX build artifacts (generated from source; do not commit)
 research_report/*.aux
