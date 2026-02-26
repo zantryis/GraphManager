@@ -23,7 +23,7 @@ from .path_resolution import (
     normalize_file_path as _normalize_file_path,
     normalize_file_paths as _normalize_file_paths,
 )
-from .rag_baseline import RAGAgent, RAGIndex, RawRAG
+from .rag_baseline import RAGAgent, RAGIndex, RAGMetadataIndex, RawRAG
 from .agentless_like_localization import AgentlessLikeLocalizer
 from .run_ids import build_issue_set_id, build_suite_id
 
@@ -151,9 +151,10 @@ def validate_commit_context(
     """
     setup_costs = context.get("setup_costs", {})
     graph_embedding_methods = {"gm_progressive", "gm_baseline", "gm_deterministic"}
-    graph_structure_methods = graph_embedding_methods | {"repomap_like", "agentless_like_localization"}
+    graph_structure_methods = graph_embedding_methods | {"repomap_like", "agentless_like_localization", "rag_metadata"}
     rag_function_methods = {"rag_progressive", "rag_baseline", "raw_rag_function", "agentless_like_localization"}
     rag_fixed_methods = {"raw_rag_fixed"}
+    rag_metadata_methods = {"rag_metadata"}
     required = set(required_methods or ALL_METHODS)
     unknown = required - set(ALL_METHODS)
     if unknown:
@@ -164,6 +165,7 @@ def validate_commit_context(
     needs_graph_embedding = bool(required & graph_embedding_methods)
     needs_rag_function = bool(required & rag_function_methods)
     needs_rag_fixed = bool(required & rag_fixed_methods)
+    needs_rag_metadata = bool(required & rag_metadata_methods)
 
     if needs_graph_structure:
         graph_file_paths = context.get("graph_file_paths", set())
@@ -204,6 +206,15 @@ def validate_commit_context(
         if rag_fixed_tokens == 0:
             raise ValueError(
                 "RAG fixed index is empty (raw_rag_fixed setup_embedding_tokens=0). "
+                "source_prefixes likely matches no Python files in the repo at this commit. "
+                "Check source_prefixes against the actual directory layout."
+            )
+
+    if needs_rag_metadata:
+        rag_meta_tokens = int(setup_costs.get("rag_metadata", {}).get("embedding_tokens", 0) or 0)
+        if rag_meta_tokens == 0:
+            raise ValueError(
+                "RAG metadata index is empty (rag_metadata setup_embedding_tokens=0). "
                 "source_prefixes likely matches no Python files in the repo at this commit. "
                 "Check source_prefixes against the actual directory layout."
             )
@@ -433,6 +444,94 @@ def _copy_run_artifacts(
         shutil.copy2(src, base_results_path / name)
 
 
+def _build_agentic_methods(
+    context: dict,
+    enabled_method_set: set,
+    model_name: str,
+    manager_max_turns: int,
+    rag_max_turns: int,
+    client,
+    repo_dir: str,
+    source_prefixes: list,
+) -> list:
+    """Instantiate agentic retrieval agents and return (name, display, agent, max_turns) tuples.
+
+    All agents receive model=model_name.  RAG variants receive symmetric_tools=True + repo_dir
+    so their tool set is symmetric with GM agents (P0 fairness fix).
+    """
+    agentic_methods = []
+    if "gm_progressive" in enabled_method_set:
+        gm_progressive = ManagerAgent(
+            context["graph"], context["graph_index"], client,
+            retrieval_mode="progressive", model=model_name,
+        )
+        agentic_methods.append(
+            ("gm_progressive", "GM (progressive)", gm_progressive, manager_max_turns)
+        )
+    if "gm_baseline" in enabled_method_set:
+        gm_baseline = ManagerAgent(
+            context["graph"], context["graph_index"], client,
+            retrieval_mode="baseline", model=model_name,
+        )
+        agentic_methods.append(
+            ("gm_baseline", "GM (baseline)", gm_baseline, manager_max_turns)
+        )
+    if "rag_progressive" in enabled_method_set:
+        rag_progressive = RAGAgent(
+            context["rag_function_index"], client,
+            retrieval_mode="progressive",
+            model=model_name,
+            symmetric_tools=True,
+            repo_dir=repo_dir,
+        )
+        agentic_methods.append(
+            ("rag_progressive", "RAG (progressive)", rag_progressive, rag_max_turns)
+        )
+    if "rag_baseline" in enabled_method_set:
+        rag_baseline = RAGAgent(
+            context["rag_function_index"], client,
+            retrieval_mode="baseline",
+            model=model_name,
+            symmetric_tools=True,
+            repo_dir=repo_dir,
+        )
+        agentic_methods.append(
+            ("rag_baseline", "RAG (baseline)", rag_baseline, rag_max_turns)
+        )
+    if "agentless_like_localization" in enabled_method_set:
+        agentless_like = AgentlessLikeLocalizer(
+            rag_index=context["rag_function_index"],
+            graph=context["graph"],
+            client=client,
+            model=model_name,
+            stage2_enabled=True,
+            stage3_enabled=True,
+            edit_location_samples=4,
+            file_branch_top_n=3,
+            embed_branch_top_k=20,
+            merge_top_k=12,
+            stage3_context_window_lines=10,
+            stage3_max_tokens_per_file=1200,
+            constrained_candidates_max=200,
+            reject_out_of_candidate_paths=True,
+        )
+        agentic_methods.append(
+            ("agentless_like_localization", "Agentless-like", agentless_like, manager_max_turns)
+        )
+    if "agentic_cold_start" in enabled_method_set:
+        from src.agentic_cold_start import AgenticColdStartAgent
+        cold_start_agent = AgenticColdStartAgent(
+            repo_dir=repo_dir,
+            client=client,
+            model=model_name,
+            include_prefixes=source_prefixes,
+        )
+        agentic_methods.append(
+            ("agentic_cold_start", "Cold-start (agent)", cold_start_agent, manager_max_turns)
+        )
+    return agentic_methods
+
+
 def run_experiment(
     gemini_api_key: str,
     n_issues: int = 10,
@@ -584,6 +683,7 @@ def run_experiment(
         rag_func = None
         rag_fixed = None
         bm25_index = None
+        rag_metadata_index = None
         graph_file_paths = set()
         rag_function_file_paths = set()
         rag_fixed_file_paths = set()
@@ -592,10 +692,12 @@ def run_experiment(
         rag_func_setup = {"build_time_s": 0.0, "embedding_tokens": 0}
         rag_fixed_setup = {"build_time_s": 0.0, "embedding_tokens": 0}
         bm25_setup = {"build_time_s": 0.0, "embedding_tokens": 0}
+        rag_metadata_setup = {"build_time_s": 0.0, "embedding_tokens": 0}
 
+        needs_rag_metadata = "rag_metadata" in enabled_method_set
         needs_graph_index = bool(enabled_method_set & {"gm_deterministic", "gm_progressive", "gm_baseline"})
         needs_graph_structure = needs_graph_index or bool(
-            enabled_method_set & {"repomap_like", "agentless_like_localization"}
+            enabled_method_set & {"repomap_like", "agentless_like_localization", "rag_metadata"}
         )
         needs_rag_function = bool(
             enabled_method_set
@@ -636,6 +738,17 @@ def run_experiment(
                 str(node_id)
                 for node_id, node_data in graph.nodes(data=True)
                 if node_data.get("type") == "file" and str(node_id).endswith(".py")
+            }
+
+        if needs_rag_metadata:
+            # graph must already be built (needs_graph_structure includes rag_metadata)
+            t0 = time.time()
+            rag_metadata_index = RAGMetadataIndex(graph, client)
+            rag_metadata_index.build()
+            rag_metadata_time = time.time() - t0
+            rag_metadata_setup = {
+                "build_time_s": rag_metadata_time,
+                "embedding_tokens": int(rag_metadata_index.embedding_tokens_estimate),
             }
 
         if needs_rag_function:
@@ -722,6 +835,7 @@ def run_experiment(
                 "embedding_tokens": int(rag_func_setup.get("embedding_tokens", 0) or 0),
             },
             "agentic_cold_start": cold_start_setup,
+            "rag_metadata": rag_metadata_setup,
         }
         for method_key, setup in setup_costs.items():
             method_setup_totals[method_key]["build_time_s"] += float(setup.get("build_time_s", 0.0))
@@ -734,6 +848,7 @@ def run_experiment(
             "rag_function_index": rag_func,
             "rag_fixed_index": rag_fixed,
             "bm25_index": bm25_index,
+            "rag_metadata_index": rag_metadata_index,
             "graph_file_paths": graph_file_paths,
             "rag_function_file_paths": rag_function_file_paths,
             "rag_fixed_file_paths": rag_fixed_file_paths,
@@ -791,66 +906,16 @@ def run_experiment(
                 ("repomap_like", "RepoMap-like", repomap_like)
             )
 
-        agentic_methods = []
-        if "gm_progressive" in enabled_method_set:
-            gm_progressive = ManagerAgent(
-                context["graph"], context["graph_index"], client, retrieval_mode="progressive"
-            )
-            agentic_methods.append(
-                ("gm_progressive", "GM (progressive)", gm_progressive, manager_max_turns)
-            )
-        if "gm_baseline" in enabled_method_set:
-            gm_baseline = ManagerAgent(
-                context["graph"], context["graph_index"], client, retrieval_mode="baseline"
-            )
-            agentic_methods.append(
-                ("gm_baseline", "GM (baseline)", gm_baseline, manager_max_turns)
-            )
-        if "rag_progressive" in enabled_method_set:
-            rag_progressive = RAGAgent(
-                context["rag_function_index"], client, retrieval_mode="progressive"
-            )
-            agentic_methods.append(
-                ("rag_progressive", "RAG (progressive)", rag_progressive, rag_max_turns)
-            )
-        if "rag_baseline" in enabled_method_set:
-            rag_baseline = RAGAgent(
-                context["rag_function_index"], client, retrieval_mode="baseline"
-            )
-            agentic_methods.append(
-                ("rag_baseline", "RAG (baseline)", rag_baseline, rag_max_turns)
-            )
-        if "agentless_like_localization" in enabled_method_set:
-            agentless_like = AgentlessLikeLocalizer(
-                rag_index=context["rag_function_index"],
-                graph=context["graph"],
-                client=client,
-                model=model_name,
-                stage2_enabled=True,
-                stage3_enabled=True,
-                edit_location_samples=4,
-                file_branch_top_n=3,
-                embed_branch_top_k=20,
-                merge_top_k=12,
-                stage3_context_window_lines=10,
-                stage3_max_tokens_per_file=1200,
-                constrained_candidates_max=200,
-                reject_out_of_candidate_paths=True,
-            )
-            agentic_methods.append(
-                ("agentless_like_localization", "Agentless-like", agentless_like, manager_max_turns)
-            )
-        if "agentic_cold_start" in enabled_method_set:
-            from src.agentic_cold_start import AgenticColdStartAgent
-            cold_start_agent = AgenticColdStartAgent(
-                repo_dir=repo_dir,
-                client=client,
-                model=model_name,
-                include_prefixes=source_prefixes,
-            )
-            agentic_methods.append(
-                ("agentic_cold_start", "Cold-start (agent)", cold_start_agent, manager_max_turns)
-            )
+        agentic_methods = _build_agentic_methods(
+            context=context,
+            enabled_method_set=enabled_method_set,
+            model_name=model_name,
+            manager_max_turns=manager_max_turns,
+            rag_max_turns=rag_max_turns,
+            client=client,
+            repo_dir=repo_dir,
+            source_prefixes=source_prefixes,
+        )
 
         raw_methods = []
         if "raw_rag_function" in enabled_method_set:
@@ -861,6 +926,9 @@ def run_experiment(
             raw_methods.append(("raw_rag_fixed", "Raw-RAG (fixed)", raw_rag_fixed_agent))
         if "bm25" in enabled_method_set:
             raw_methods.append(("bm25", "BM25", context["bm25_index"]))
+        if "rag_metadata" in enabled_method_set:
+            rag_meta_agent = RawRAG(context["rag_metadata_index"])
+            raw_methods.append(("rag_metadata", "RAG-metadata", rag_meta_agent))
 
         for issue in commit_issues:
             issue_index += 1
@@ -968,6 +1036,8 @@ def run_experiment(
                     valid_files = context["rag_fixed_file_paths"]
                 elif method_key == "bm25":
                     valid_files = context["bm25_file_paths"]
+                elif method_key == "rag_metadata":
+                    valid_files = context["graph_file_paths"]
                 else:
                     valid_files = context["rag_function_file_paths"]
                 try:
@@ -1080,6 +1150,7 @@ ALL_METHODS = [
     "gm_progressive", "gm_baseline",
     "rag_progressive", "rag_baseline",
     "raw_rag_function", "raw_rag_fixed",
+    "rag_metadata",
     "bm25",
     "repomap_like",
     "agentless_like_localization",

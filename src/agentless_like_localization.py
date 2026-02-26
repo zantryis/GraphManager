@@ -8,6 +8,10 @@ import random
 import re
 from collections import defaultdict
 
+from google.genai import types as _genai_types
+
+_TEMPERATURE_ZERO = _genai_types.GenerateContentConfig(temperature=0.0)
+
 
 def _tokenize(text: str) -> set[str]:
     return {
@@ -336,6 +340,7 @@ class AgentlessLikeLocalizer:
         response = self.client.models.generate_content(
             model=self.model,
             contents=prompt,
+            config=_TEMPERATURE_ZERO,
         )
         usage = self._usage_from_response(response)
         parsed = _extract_json_object(_safe_response_text(response)) or {}
@@ -395,6 +400,7 @@ class AgentlessLikeLocalizer:
         response = self.client.models.generate_content(
             model=self.model,
             contents=prompt,
+            config=_TEMPERATURE_ZERO,
         )
         usage = self._usage_from_response(response)
         parsed = _extract_json_object(_safe_response_text(response)) or {}
@@ -487,6 +493,7 @@ class AgentlessLikeLocalizer:
         response = self.client.models.generate_content(
             model=self.model,
             contents=prompt,
+            config=_TEMPERATURE_ZERO,
         )
         usage = self._usage_from_response(response)
         parsed = _extract_json_object(_safe_response_text(response)) or {}

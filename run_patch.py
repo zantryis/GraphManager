@@ -274,6 +274,7 @@ def _run_retrieval(
     graph_index,
     rag_index,
     bm25_index=None,
+    rag_metadata_index=None,
     client,
     method: str,
     manager_model: str,
@@ -396,6 +397,13 @@ def _run_retrieval(
             if bm25_index is None:
                 raise ValueError("bm25_index must be provided when method='bm25'")
             files, tokens = bm25_index.find_relevant_files(query)
+
+        elif method == "rag_metadata":
+            if rag_metadata_index is None:
+                raise ValueError("rag_metadata_index must be provided when method='rag_metadata'")
+            from src.rag_baseline import RawRAG
+            agent = RawRAG(rag_metadata_index)
+            files, tokens = agent.find_relevant_files(query)
 
         elif method == "repomap_like":
             if graph is None:
@@ -563,6 +571,7 @@ def _build_method_scoped_commit_context(
     rag_family = {"rag_progressive", "rag_baseline", "raw_rag_function", "raw_rag_fixed"}
     repomap_family = {"repomap_like"}
     agentless_family = {"agentless_like_localization"}
+    rag_metadata_family = {"rag_metadata"}
 
     if retrieval_method in gm_family:
         print("    Building graph index...")
@@ -704,6 +713,44 @@ def _build_method_scoped_commit_context(
                 "setup_tokens_graph_built": 0,
                 "setup_tokens_rag_built": rag_tokens,
                 "setup_tokens_method_accounted": rag_tokens,
+            }
+        )
+        return context
+
+    if retrieval_method in rag_metadata_family:
+        print("    Building graph (rag_metadata)...")
+        builder = graph_builder_cls(repo_dir, include_prefixes=prefixes)
+        graph = builder.build()
+        graph_file_paths = {
+            str(node_id)
+            for node_id, node_data in graph.nodes(data=True)
+            if node_data.get("type") == "file"
+        }
+        if not graph_file_paths:
+            raise ValueError(
+                "rag_metadata graph is empty (no Python files in scope). "
+                "Check source_prefixes against repository layout."
+            )
+
+        print("    Building RAGMetadataIndex (rag_metadata)...")
+        from src.rag_baseline import RAGMetadataIndex
+        rag_metadata_idx = RAGMetadataIndex(graph, client)
+        rag_metadata_idx.build()
+        meta_tokens = int(getattr(rag_metadata_idx, "embedding_tokens_estimate", 0) or 0)
+
+        setup_costs = {"rag_metadata": {"embedding_tokens": meta_tokens}}
+        validate_commit_context_fn(
+            {"graph_file_paths": graph_file_paths, "setup_costs": setup_costs},
+            required_methods=(retrieval_method,),
+        )
+        context.update(
+            {
+                "graph": graph,
+                "rag_metadata_index": rag_metadata_idx,
+                "graph_file_paths": graph_file_paths,
+                "retrieval_setup_tokens": meta_tokens,
+                "setup_tokens_graph_built": meta_tokens,
+                "setup_tokens_method_accounted": meta_tokens,
             }
         )
         return context
@@ -1618,6 +1665,7 @@ def run_patch_pipeline(
                                 graph_index=context["graph_index"],
                                 rag_index=context["rag_index"],
                                 bm25_index=context.get("bm25_index"),
+                                rag_metadata_index=context.get("rag_metadata_index"),
                                 client=local_client,
                                 method=retrieval_method,
                                 manager_model=manager_model,
@@ -1731,6 +1779,7 @@ def run_patch_pipeline(
                                 graph_index=context["graph_index"],
                                 rag_index=context["rag_index"],
                                 bm25_index=context.get("bm25_index"),
+                                rag_metadata_index=context.get("rag_metadata_index"),
                                 client=local_client,
                                 method=retrieval_method,
                                 manager_model=manager_model,

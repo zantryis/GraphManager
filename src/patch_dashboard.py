@@ -463,10 +463,15 @@ def load_campaign_state(campaigns_dir: Path) -> list[dict]:
     """Load all campaign state files and return list of campaign dicts.
 
     Returns [{"campaign_name": str, "steps": [{"name", "description", "status", ...}]}]
+    For running steps, elapsed_s is computed dynamically from started_at.
     """
+    import datetime as _dt
+
     campaigns_dir = Path(campaigns_dir)
     if not campaigns_dir.exists():
         return []
+
+    now = _dt.datetime.now()
 
     result: list[dict] = []
     for state_path in sorted(campaigns_dir.glob("*_state.json")):
@@ -477,10 +482,23 @@ def load_campaign_state(campaigns_dir: Path) -> list[dict]:
         steps = data.get("steps")
         if not isinstance(steps, list):
             steps = []
+        enriched = []
+        for s in steps:
+            if not isinstance(s, dict):
+                continue
+            s = dict(s)  # copy to avoid mutating cached data
+            # Compute elapsed_s dynamically for running steps
+            if s.get("status") == "running" and s.get("started_at") and not s.get("elapsed_s"):
+                try:
+                    started = _dt.datetime.fromisoformat(s["started_at"])
+                    s["elapsed_s"] = (now - started).total_seconds()
+                except Exception:
+                    pass
+            enriched.append(s)
         result.append({
             "campaign_name": campaign_name,
             "updated_at": str(data.get("updated_at") or ""),
-            "steps": [s for s in steps if isinstance(s, dict)],
+            "steps": enriched,
         })
 
     return result

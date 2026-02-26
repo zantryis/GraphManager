@@ -65,7 +65,10 @@ SOURCE_PREFIXES: dict[str, list[str]] = {
     "psf/black": ["blib2to3", "src/black"],
 }
 
-# Full-run methods (10-method matrix with oracle included).
+# Full-run methods (11-method matrix with oracle included).
+# rag_metadata is the key control: same embedding content as gm_deterministic
+# (name + signature + docstring[:200]), no graph traversal.  Isolates graph
+# structure contribution from embedding-content choice.
 FULL_METHODS = [
     "oracle",
     "gm_progressive",
@@ -73,6 +76,7 @@ FULL_METHODS = [
     "gm_deterministic",
     "raw_rag_function",
     "raw_rag_fixed",
+    "rag_metadata",
     "bm25",
     "agentic_cold_start",
     "repomap_like",
@@ -130,7 +134,7 @@ def _manifest_payload(
     }
     if retrieval_method == "rag_progressive":
         payload["rag_symmetric_tools"] = True
-    elif retrieval_method in {"bm25", "raw_rag_function", "raw_rag_fixed"}:
+    elif retrieval_method in {"bm25", "raw_rag_function", "raw_rag_fixed", "rag_metadata"}:
         # Explicit for clarity in manifests: deterministic/no-tool RAG-family runs.
         payload["rag_symmetric_tools"] = False
     return payload

@@ -41,7 +41,7 @@ _V2_REPOS = [
 _V2_METHODS = [
     "gm_deterministic", "gm_progressive", "gm_baseline",
     "rag_progressive", "rag_baseline",
-    "raw_rag_function", "raw_rag_fixed",
+    "raw_rag_function", "raw_rag_fixed", "rag_metadata",
     "bm25", "repomap_like", "agentless_like_localization", "agentic_cold_start",
 ]
 
@@ -425,7 +425,14 @@ _HTML = r"""<!DOCTYPE html>
         if (campaigns.length > 1) html += `<div class="section-label">${camp.campaign_name}</div>`;
         (camp.steps || []).forEach(step => {
           const icon = stepIcons[step.status] || '○';
-          const t = step.elapsed_s ? fmtElapsed(step.elapsed_s) : (step.status === 'running' ? '…' : '');
+          let timeParts = [];
+          if (step.elapsed_s) timeParts.push(fmtElapsed(step.elapsed_s) + ' elapsed');
+          if (step.status === 'running' && step.eta_seconds)
+            timeParts.push('<span style="color:var(--blue)">ETA ' + fmtEta(step.eta_seconds) + '</span>');
+          if (step.status === 'pending' && step.eta_seconds_estimate)
+            timeParts.push('<span style="color:var(--gray)">est. ' + fmtEta(step.eta_seconds_estimate) + '</span>');
+          if (step.status === 'running' && !timeParts.length) timeParts.push('…');
+          const t = timeParts.join(' · ');
           html += `<div class="cstep">
             <div class="cstep-icon ${step.status || 'pending'}">${icon}</div>
             <div style="flex:1">
@@ -494,6 +501,7 @@ def _make_handler(
                 return
 
             if parsed.path == "/api/status":
+                import datetime as _dt
                 query = parse_qs(parsed.query)
                 active_only = query.get("active_only", ["1"])[0] == "1"
                 include_complete = query.get("include_complete", ["0"])[0] == "1"
@@ -514,13 +522,30 @@ def _make_handler(
                     load_manifest_plan_summary(manifest_list_path, root_dir=ROOT)
                     if manifest_list_path else None
                 )
+                summary_all = summarize_dashboard_runs(all_runs)
+                # Compute T1 ETA from campaign start time + observed progress rate
+                t1_eta_s = None
+                try:
+                    campaigns_data = load_campaign_state(campaigns_dir)
+                    for camp in campaigns_data:
+                        for step in camp.get("steps", []):
+                            if step.get("name") == "t1_patching_stage1" and step.get("started_at"):
+                                elapsed_s = step.get("elapsed_s") or 0
+                                n_done = summary_all.get("n_completed_total", 0)
+                                n_total = summary_all.get("n_instances_total", 0)
+                                if elapsed_s > 120 and n_done > 0 and n_total > n_done:
+                                    rate = n_done / elapsed_s  # instances/sec
+                                    t1_eta_s = (n_total - n_done) / rate
+                except Exception:
+                    pass
                 payload = {
                     "results_root": str(results_root),
                     "run_count": len(runs),
                     "summary": summarize_dashboard_runs(runs),
                     "summary_visible": summarize_dashboard_runs(runs),
-                    "summary_started": summarize_dashboard_runs(all_runs),
+                    "summary_started": summary_all,
                     "summary_plan": summary_plan,
+                    "eta_seconds": t1_eta_s,
                     "runs": runs,
                 }
                 self._json(payload)
@@ -532,8 +557,38 @@ def _make_handler(
                 return
 
             if parsed.path == "/api/campaign_status":
-                campaigns = load_campaign_state(campaigns_dir)
-                self._json({"campaigns": campaigns})
+                # T2/T0 estimated durations when not yet started (based on scale)
+                # T2: ~500 instances × 11 methods × 3 min / (8 × Modal) ≈ 8h
+                # T0: 3 methods × 103 issues / (max-parallel 3) × 45s ≈ 2.5h
+                _STEP_ESTIMATES = {
+                    "t2_patching_harness_modal": 8 * 3600,
+                    "t0_retrieval_only_ablations": 2.5 * 3600,
+                }
+                campaigns_raw = load_campaign_state(campaigns_dir)
+                # Augment steps with eta_seconds
+                for camp in campaigns_raw:
+                    for step in camp.get("steps", []):
+                        name = step.get("name", "")
+                        status = step.get("status", "pending")
+                        if status == "pending" and name in _STEP_ESTIMATES:
+                            step["eta_seconds_estimate"] = _STEP_ESTIMATES[name]
+                        elif status == "running" and name == "t1_patching_stage1":
+                            # Compute T1 ETA inline for campaign tab
+                            try:
+                                elapsed_s = step.get("elapsed_s") or 0
+                                all_r = collect_dashboard_status(
+                                    results_root, stale_after_minutes=stale_after_minutes,
+                                    active_only=False, include_complete=True, include_stale=True,
+                                )
+                                sm = summarize_dashboard_runs(all_r)
+                                n_done = sm.get("n_completed_total", 0)
+                                n_total = sm.get("n_instances_total", 0)
+                                if elapsed_s > 120 and n_done > 0 and n_total > n_done:
+                                    rate = n_done / elapsed_s
+                                    step["eta_seconds"] = (n_total - n_done) / rate
+                            except Exception:
+                                pass
+                self._json({"campaigns": campaigns_raw})
                 return
 
             self.send_response(HTTPStatus.NOT_FOUND)

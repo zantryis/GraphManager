@@ -20,8 +20,10 @@ class _FakeResponse:
 class _FakeModels:
     def __init__(self, responses: list[str]):
         self._responses = list(responses)
+        self.captured_configs: list = []
 
-    def generate_content(self, model, contents):  # noqa: ARG002
+    def generate_content(self, model, contents, config=None):  # noqa: ARG002
+        self.captured_configs.append(config)
         text = self._responses.pop(0) if self._responses else "{}"
         return _FakeResponse(text)
 
@@ -224,6 +226,35 @@ class AgentlessLikeLocalizationTests(unittest.TestCase):
         self.assertTrue(meta["stage1_llm_fired"])
         self.assertFalse(meta["stage2_llm_fired"])
         self.assertFalse(meta["stage3_llm_fired"])
+
+
+    def test_all_llm_calls_use_temperature_zero(self):
+        """P0 fix: all three stage LLM calls must set temperature=0.0."""
+        client = _FakeClient(
+            responses=[
+                '{"files":["pkg/b.py"]}',
+                '{"symbols":["pkg/b.py::fb"]}',
+                '{"spans":[{"symbol_id":"pkg/b.py::fb","confidence":0.8}]}',
+            ]
+        )
+        localizer = AgentlessLikeLocalizer(
+            rag_index=_FakeRAGIndex(),
+            graph=self._graph(),
+            client=client,
+            stage2_enabled=True,
+            stage3_enabled=True,
+            file_branch_top_n=2,
+            merge_top_k=3,
+        )
+        localizer.find_relevant_files("bug in b")
+        configs = client.models.captured_configs
+        self.assertEqual(len(configs), 3, "Expected 3 LLM calls (stage 1, 2, 3)")
+        for i, cfg in enumerate(configs):
+            self.assertIsNotNone(cfg, f"Stage {i+1} generate_content called without config")
+            self.assertEqual(
+                cfg.temperature, 0.0,
+                f"Stage {i+1} LLM call has temperature={cfg.temperature}, expected 0.0"
+            )
 
 
 if __name__ == "__main__":

@@ -356,6 +356,142 @@ class RawRAG:
         return files, token_usage
 
 
+class RAGMetadataIndex:
+    """FAISS index over node metadata text — same text as GraphIndex embeds.
+
+    Embeds ``name + signature + docstring[:200]`` per function/class node
+    (identical to what ``GraphIndex.build()`` uses).  No graph traversal:
+    retrieval is pure cosine similarity over metadata embeddings.
+
+    This is the key control for isolating the graph-structure contribution:
+      - ``rag_metadata`` vs ``gm_deterministic`` → graph structure effect
+        (same embedding content, same model, different search mechanism)
+      - ``rag_metadata`` vs ``raw_rag_function``  → embedding content effect
+        (same mechanism, metadata vs full code body)
+    """
+
+    def __init__(self, graph, client):
+        self.graph = graph
+        self.client = client
+        self.chunks: list[dict] = []  # [{file, name, text, start_line, end_line}]
+        self.index = None
+        self.embedding_tokens_estimate = 0
+
+    def build(self) -> None:
+        """Build FAISS index from graph node metadata (exact same text as GraphIndex)."""
+        texts: list[str] = []
+        self.chunks = []
+
+        for node_id, data in self.graph.nodes(data=True):
+            if data.get("type") not in ("function", "class"):
+                continue
+            name = str(data.get("name", "") or "")
+            docstring = str(data.get("docstring", "") or "")
+            signature = str(data.get("signature", "") or "")
+            file_path = str(data.get("file", "") or "")
+            if not file_path:
+                continue
+
+            # Exact same text construction as GraphIndex.build()
+            text = name
+            if signature and data.get("type") == "function":
+                text += signature
+            if docstring:
+                text += f": {docstring[:200]}"
+
+            self.chunks.append({
+                "file": file_path,
+                "name": name,
+                "text": text,
+                "start_line": int(data.get("start_line", 1) or 1),
+                "end_line": int(data.get("end_line", 1) or 1),
+            })
+            texts.append(text)
+
+        if not texts:
+            print("  Warning: RAGMetadataIndex: no nodes to index")
+            return
+
+        self.embedding_tokens_estimate = sum(len(t) for t in texts) // 4
+
+        from src.api_retry import embed_with_retry
+
+        all_embeddings = []
+        batch_size = 100
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i: i + batch_size]
+            result = embed_with_retry(
+                lambda b=batch: self.client.models.embed_content(
+                    model="gemini-embedding-001",
+                    contents=b,
+                    config=types.EmbedContentConfig(
+                        task_type="RETRIEVAL_DOCUMENT",
+                        output_dimensionality=768,
+                    ),
+                )
+            )
+            batch_embeddings = np.array(
+                [e.values for e in result.embeddings], dtype=np.float32
+            )
+            all_embeddings.append(batch_embeddings)
+
+        embeddings = np.vstack(all_embeddings)
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        embeddings = embeddings / norms
+
+        self.index = faiss.IndexFlatIP(embeddings.shape[1])
+        self.index.add(embeddings)
+        print(
+            f"  RAGMetadataIndex: {len(self.chunks)} nodes, "
+            f"~{self.embedding_tokens_estimate} embedding tokens"
+        )
+
+    def search(self, query: str, top_k: int = 20) -> dict:
+        """Search metadata index, return dict compatible with RAGIndex.search()."""
+        if self.index is None or not self.chunks:
+            return {"results": [], "query_embedding_tokens": 0}
+
+        from src.api_retry import embed_with_retry
+
+        query_embedding_tokens = max(len(query.strip()) // 4, 0) if query else 0
+        result = embed_with_retry(
+            lambda: self.client.models.embed_content(
+                model="gemini-embedding-001",
+                contents=[query],
+                config=types.EmbedContentConfig(
+                    task_type="RETRIEVAL_QUERY",
+                    output_dimensionality=768,
+                ),
+            )
+        )
+        query_emb = np.array([result.embeddings[0].values], dtype=np.float32)
+        norm = np.linalg.norm(query_emb)
+        if norm > 0:
+            query_emb = query_emb / norm
+
+        k = min(top_k, len(self.chunks))
+        scores, indices = self.index.search(query_emb, k)
+
+        results = []
+        for score, idx in zip(scores[0], indices[0]):
+            if idx < 0 or idx >= len(self.chunks):
+                continue
+            chunk = self.chunks[idx]
+            results.append({
+                "file": chunk["file"],
+                "name": chunk.get("name", ""),
+                "text": chunk.get("text", "")[:300],
+                "start_line": chunk.get("start_line", 0),
+                "end_line": chunk.get("end_line", 0),
+                "score": float(score),
+            })
+        return {
+            "results": results,
+            "query_embedding_tokens": query_embedding_tokens,
+        }
+
+
 class RAGAgent:
     """Gemini function-calling agent with a vector search tool over code chunks."""
 

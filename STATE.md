@@ -1,7 +1,7 @@
 # STATE.md -- Current project status
 
 Last updated: 2026-02-25
-Last agent: Claude (V2 campaign launch prep session)
+Last agent: Claude (P0 bug fixes from external rigor audit)
 
 ---
 
@@ -30,8 +30,8 @@ Full scope: `RESEARCH_INTENT.md`. Permitted claims: `CLAIMS_LOCK.md`.
 - Agentic cold-start: `src/agentic_cold_start.py` (real agent with 3 filesystem tools)
 - RepoMap-like: `src/repomap_like.py` (PageRank on file-level graph)
 - Agentless-like: `src/agentless_like_localization.py` (3-stage hierarchical)
-- V2 manifests: `patch_manifests/v2_verified/` (12 repos x 10 methods + oracle + 3 pilots = 123 manifests)
-- Retrieval expansion config: `experiments_retrieval_expansion_v2.yaml` (9 repos, 11 methods)
+- V2 manifests: `patch_manifests/v2_verified/` (12 repos × 11 methods + oracle + 3 pilots = 135 manifests)
+- Retrieval expansion config: `experiments_retrieval_expansion_v2.yaml` (12 repos, 12 methods including rag_metadata)
 - Checkpoint/resume: `--resume` flag, `predictions_partial.jsonl`
 - Parallel stage 1: `--workers N`, isolated repo clones per worker
 - Parallel retrieval suite: `run_suite.py --max-parallel N` (repo-level concurrency)
@@ -52,6 +52,15 @@ Full scope: `RESEARCH_INTENT.md`. Permitted claims: `CLAIMS_LOCK.md`.
 - **T3 aggregation script** (2026-02-25): `tools/aggregate_v2_results.py` — outputs retrieval.csv, patching.csv, retrieval_table.tex, patching_table.tex, mcnemar.txt from all V2 runs
 - **Paper archival** (2026-02-25): V1 content moved to `research_report/archive/v1/`; V2 `main.tex` + section stubs created; `sections/03_method.tex` written in full (all 11 retrieval methods, §3.1–3.4)
 - 274 unit tests passing (was 263 before this session)
+- **rag_metadata baseline** (2026-02-25): `RAGMetadataIndex` added to `src/rag_baseline.py`; wired into `src/evaluation.py` and `run_patch.py`; 12 new patching manifests generated; `rag_metadata` added to `ALL_METHODS` and retrieval expansion YAML. Isolates graph structure contribution from embedding-content choice.
+- **Campaign reordered T1 → T2 → T0** (2026-02-25): T1 (patch Stage 1) runs first to capture retrieval F1 for all 11 patching methods × 500 instances for free. T0 now covers only 3 retrieval-only ablations (gm_baseline, rag_baseline, rag_metadata). T2 uses Modal.
+- 288 unit tests passing
+- **P0 retrieval eval bug fixes** (2026-02-25, external rigor audit):
+  - `evaluation.py`: extracted `_build_agentic_methods()`; ManagerAgent + RAGAgent now receive `model=model_name` (were silently falling back to `gemini-2.0-flash` while agentless/cold-start got `gemini-3-flash-preview`)
+  - `evaluation.py`: `rag_progressive` + `rag_baseline` now receive `symmetric_tools=True` + `repo_dir` (were getting 1 tool vs GM's 3 — biased retrieval comparison)
+  - `agentless_like_localization.py`: all 3 stage LLM calls now set `temperature=0.0` (were using API default ~1.0 — non-deterministic vs all other methods)
+  - 3 new tests covering all three fixes; 291 tests total
+  - No data corruption: agentless_like T1 manifests had not yet started; T0 retrieval eval has not started
 
 ### V2 method matrix alignment (done 2026-02-25)
 
@@ -62,14 +71,14 @@ Full scope: `RESEARCH_INTENT.md`. Permitted claims: `CLAIMS_LOCK.md`.
 - RESEARCH_INTENT.md rewritten for V2 method matrix
 - All code + tests aligned across retrieval and patching
 
-**Retrieval eval methods (11):**
+**Retrieval eval methods (12):**
 gm_deterministic, gm_progressive, gm_baseline, rag_progressive, rag_baseline,
-raw_rag_function, raw_rag_fixed, bm25, repomap_like, agentless_like_localization,
-agentic_cold_start
+raw_rag_function, raw_rag_fixed, rag_metadata, bm25, repomap_like,
+agentless_like_localization, agentic_cold_start
 
-**Patching methods (10 + oracle):**
+**Patching methods (11 + oracle):**
 oracle, gm_progressive, gm_deterministic, rag_progressive, raw_rag_function,
-raw_rag_fixed, bm25, agentic_cold_start, repomap_like, agentless_like_localization
+raw_rag_fixed, rag_metadata, bm25, agentic_cold_start, repomap_like, agentless_like_localization
 
 (gm_baseline and rag_baseline excluded from patching — single-turn ablation variants)
 
@@ -92,7 +101,8 @@ raw_rag_fixed, bm25, agentic_cold_start, repomap_like, agentless_like_localizati
 See TASKS.md for the active task. High-level sequence:
 
 1. **Launch campaign**: `PYTHONUNBUFFERED=1 ./.venv/bin/python tools/run_campaign.py campaigns/v2_full.yaml --resume`
-   - T0 pass 1 (embed-only, max-parallel 8) → T0 pass 2 (single-turn, 4) → T0 pass 3 (multi-turn, 3) → T1 → T2
+   - T1 (patch Stage 1, 135 manifests, max-parallel-repos 4) → T2 (Modal harness, max-parallel-repos 8) → T0 (3 retrieval-only ablations, max-parallel 3)
+   - T1 captures retrieved_files + gold_files for free retrieval F1 extraction on 500-instance population
    - Dashboard at `tools/patch_dashboard.py --port 5051` shows live Retrieval grid + Campaign steps
 2. **Monitor** via dashboard. Wake Claude when campaign tab shows T2 done.
 3. **T3**: `python tools/aggregate_v2_results.py --results-root results --output-dir results/v2_scorecard`
@@ -107,7 +117,19 @@ See TASKS.md for the active task. High-level sequence:
 |----|----------|-------------|--------|
 | I1 | HIGH | Retrieval population != patching population | **Fixed** 2026-02-25: experiments_retrieval_expansion_v2.yaml now covers all 12 patching repos (flask n=1, requests n=8, seaborn n=2 — SWE-bench Verified limits) |
 | I2 | MEDIUM | Single repair sample vs Agentless 40-sample -- document explicitly | Open -- paper framing |
-| I3 | LOW | `agentless_like_localization` may fall through to deterministic fallback | Telemetry added (2026-02-25): `stage1/2/3_llm_fired` flags in `agentless_like_meta`. Integration wiring confirmed: `evaluation.py:827` passes real client. Validate flags on first T0 agentless_like run. |
+| I6 | MEDIUM | `repomap_like` and `agentless_like_localization` are adapted to file-list interface, not faithful reproductions | Open -- paper framing. Both methods return `list[str]` file paths (same as all methods); full files passed to patch agent. Original Aider uses an in-context repo map; original Agentless passes spans not full files. Comparison is valid within this framework but §3.2/§3.3 must state: "adapted to unified file-retrieval interface." |
+| I3 | LOW | `agentless_like_localization` may fall through to deterministic fallback | Telemetry added (2026-02-25): `stage1/2/3_llm_fired` flags in `agentless_like_meta`. Integration wiring confirmed. Validate flags on first T0 agentless_like run. |
+| I7 | HIGH | Bootstrap CI implementation wrong: resamples 3 run-level means, not per-issue deltas. Paper states 10K resamples; code uses 2K. CIs in V1 paper are artificially narrow. | Open — fix before paper submission. Correct impl: resample per-issue paired deltas (n=10 per repo). V2 has no CI code at all. |
+| I8 | HIGH | McNemar test is non-functional stub: always outputs p=null. Instance-level resolved vectors needed from T2. | Open — implement after T2 completes. |
+| I9 | MEDIUM | No Holm-Bonferroni correction on pairwise McNemar tests. With 5+ comparisons, familywise error ~23%. | Open — add correction when McNemar is implemented. |
+| I10 | MEDIUM | No binomial CIs on patching resolve rates. Single-run data supports Wilson/Clopper-Pearson CIs. | Open — add to aggregate_v2_results.py before paper. |
+| I11 | MEDIUM | Missing bib entries: `aider2023` and `lv2011lower` cited in sections/03_method.tex but absent from references.bib — LaTeX will not compile. | Open — add before paper compile. |
+| I12 | MEDIUM | `agentless_like_localization` is graph-augmented (uses GM graph in Stage 2), not a faithful Agentless reproduction. Mentioned in §3 but must be prominently disclosed in §4 Experimental Setup and §7 Threats to Validity. | Open — paper writing. |
+| I13 | MEDIUM | `repomap_like` uses PageRank on import graph, not Aider's actual compressed text map. Should be disclosed as "graph-PageRank baseline" not an Aider reimplementation. | Open — paper writing. |
+| I14 | LOW | `aggregate_v2_results.py` "latest wins" silently replaces earlier results with no warning when multiple runs exist for same (repo, method). A bad re-run could corrupt tables. | Open — low urgency; add warning log. |
+| I15 | LOW | No effect size reporting (Cohen's h, odds ratios) alongside McNemar p-values. | Open — paper writing. |
+| I16 | LOW | No data availability statement (increasingly required by SE venues). | Open — paper writing. |
+| I17 | LOW | `ALL_METHODS` in `run_experiment.py` missing `agentic_cold_start`. Repeat aggregation and pairwise CI code silently omits cold-start. V2 uses repeats=1 so no immediate bite, but latent bug. | Open — fix opportunistically. |
 | I4 | LOW | Dataset adapter silently swallows split-load failures | Open -- T7 adds fail-fast |
 | I5 | LOW | Seaborn manifests have `source_prefixes: []` (indexes entire repo) | **Fixed** 2026-02-25 |
 
@@ -123,3 +145,7 @@ See TASKS.md for the active task. High-level sequence:
 - Consider dropping seaborn from analysis (n=2 too small for meaningful comparison)
 - s_hint ablation (w_hint=0) to test lexical vs structural contribution (gap_analysis_v1 Tier 2 item)
 - CALLS-only vs IMPORTS-only graph ablation (gap_analysis_v1 Tier 2 item)
+- Fix `ALL_METHODS` in `run_experiment.py` to include `agentic_cold_start` (see I17)
+- Add warning log in `aggregate_v2_results.py` when multiple runs exist for same (repo, method) (see I14)
+- Add data availability statement to paper (see I16)
+- Recalibrate CLAIMS_LOCK.md after V2 data lands (N=500 changes power substantially vs V1 N=100)

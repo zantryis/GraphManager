@@ -1,30 +1,20 @@
 name: v2_full
-description: "V2 full campaign: retrieval T0 (3 passes by cost tier) then patching T1+T2"
+description: >
+  V2 full campaign: T1 (patch generation) → T2 (harness, Modal) → T0 (retrieval-only methods).
+  Ordering rationale:
+  - T1 runs first: Stage 1 patch generation for all 135 manifests captures retrieved_files +
+    gold_files per instance, giving free retrieval F1 for all 11 patching methods × 500 instances.
+  - T2 runs second: Docker harness (via Modal) evaluates Stage 1 patches against SWE-bench.
+  - T0 runs last: retrieval-only eval for the 3 methods not in patching manifests
+    (gm_baseline, rag_baseline, rag_metadata). All other retrieval data is extracted from T1.
+  - rag_metadata is included in patching manifests (11 methods × 12 repos = 132 + 3 pilot = 135).
 
 steps:
-  - name: t0_pass1_zero_llm
-    description: "T0 Pass 1: BM25 + repomap_like + gm_deterministic + raw_rag_* (zero/embed-only, max-parallel 8)"
-    command: >
-      python run_suite.py experiments_retrieval_expansion_v2.yaml
-      --methods bm25,repomap_like,gm_deterministic,raw_rag_function,raw_rag_fixed
-      --max-parallel 8 --skip-completed
-
-  - name: t0_pass2_agentic_single
-    description: "T0 Pass 2: single-turn agentic ablations (max-parallel 4)"
-    command: >
-      python run_suite.py experiments_retrieval_expansion_v2.yaml
-      --methods gm_baseline,rag_baseline,agentless_like_localization
-      --max-parallel 4 --skip-completed
-
-  - name: t0_pass3_agentic_multi
-    description: "T0 Pass 3: multi-turn agentic methods (max-parallel 3)"
-    command: >
-      python run_suite.py experiments_retrieval_expansion_v2.yaml
-      --methods gm_progressive,rag_progressive,agentic_cold_start
-      --max-parallel 3 --skip-completed
-
+  # ── T1: Patch generation, Stage 1 (no Docker) ───────────────────────────────────────────
+  # Runs all 135 manifests. Captures retrieved_files + gold_files for retrieval F1 extraction.
+  # oracle manifests run first (fastest, establishes ceiling).
   - name: t1_patching_stage1
-    description: "T1: Patch generation for all 123 manifests (no Docker, stage1_only)"
+    description: "T1: Patch generation for all 135 manifests (no Docker, stage1_only)"
     command: >
       python tools/run_manifest_pool.py
       --manifest-list campaigns/v2_manifests.txt
@@ -32,12 +22,26 @@ steps:
       --evaluate-mode stage1_only
       --max-parallel-repos 4 --resume-incomplete
 
-  - name: t2_patching_stage2
-    description: "T2: SWE-bench harness (local Docker) for all completed Stage 1"
+  # ── T2: SWE-bench harness via Modal ─────────────────────────────────────────────────────
+  # Runs Docker evaluation for all Stage 1 completed patches. Modal parallelises across repos.
+  - name: t2_patching_harness_modal
+    description: "T2: SWE-bench harness (Modal) for all completed Stage 1 patches"
     command: >
       python tools/run_manifest_pool.py
       --manifest-list campaigns/v2_manifests.txt
       --results-dir results/v2_full_runs
       --evaluate-mode stage12
-      --execution-mode local
-      --max-parallel-repos 4 --resume-incomplete
+      --execution-mode modal
+      --max-parallel-repos 8 --resume-incomplete
+
+  # ── T0: Retrieval-only methods (gm_baseline, rag_baseline, rag_metadata) ────────────────
+  # These 3 methods are single-turn ablations not included in patching manifests.
+  # All other retrieval coverage comes from T1 extracted data.
+  # max-parallel 3: gm_baseline + rag_baseline embed, rag_metadata embeds.
+  # 3 repos × 3 embed methods = ~9 concurrent embed calls — safe for 20K req/min.
+  - name: t0_retrieval_only_ablations
+    description: "T0: Retrieval-only ablation methods (gm_baseline, rag_baseline, rag_metadata)"
+    command: >
+      python run_suite.py experiments_retrieval_expansion_v2.yaml
+      --methods gm_baseline,rag_baseline,rag_metadata
+      --max-parallel 3 --skip-completed

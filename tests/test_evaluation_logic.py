@@ -1,9 +1,11 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from src.evaluation import (
     ALL_METHODS,
+    _build_agentic_methods,
     _copy_run_artifacts,
     aggregate_results,
     build_issue_groups,
@@ -582,6 +584,57 @@ Traceback (most recent call last):
 
             self.assertTrue((base_results / "latest" / "graph.json").exists())
             self.assertTrue((base_results / "graph.json").exists())
+
+
+class AgentInstantiationTests(unittest.TestCase):
+    """P0 fix: verify model and symmetric_tools are wired correctly in _build_agentic_methods."""
+
+    def _fake_context(self):
+        return {
+            "graph": MagicMock(),
+            "graph_index": MagicMock(),
+            "rag_function_index": MagicMock(),
+        }
+
+    def test_manager_agent_receives_model_name(self):
+        context = self._fake_context()
+        with patch("src.evaluation.ManagerAgent") as MockManager:
+            MockManager.return_value = MagicMock()
+            _build_agentic_methods(
+                context=context,
+                enabled_method_set={"gm_progressive"},
+                model_name="test-model-xyz",
+                manager_max_turns=8,
+                rag_max_turns=8,
+                client=MagicMock(),
+                repo_dir="/tmp/repo",
+                source_prefixes=["src"],
+            )
+            call_kwargs = MockManager.call_args[1]
+            self.assertEqual(call_kwargs.get("model"), "test-model-xyz",
+                             "ManagerAgent must receive model=model_name")
+
+    def test_rag_agent_receives_model_and_symmetric_tools(self):
+        context = self._fake_context()
+        with patch("src.evaluation.RAGAgent") as MockRAG:
+            MockRAG.return_value = MagicMock()
+            _build_agentic_methods(
+                context=context,
+                enabled_method_set={"rag_progressive"},
+                model_name="test-model-xyz",
+                manager_max_turns=8,
+                rag_max_turns=8,
+                client=MagicMock(),
+                repo_dir="/tmp/repo",
+                source_prefixes=["src"],
+            )
+            call_kwargs = MockRAG.call_args[1]
+            self.assertEqual(call_kwargs.get("model"), "test-model-xyz",
+                             "RAGAgent must receive model=model_name")
+            self.assertTrue(call_kwargs.get("symmetric_tools"),
+                            "RAGAgent must receive symmetric_tools=True for rag_progressive")
+            self.assertEqual(call_kwargs.get("repo_dir"), "/tmp/repo",
+                             "RAGAgent must receive repo_dir for symmetric_tools to activate")
 
 
 if __name__ == "__main__":

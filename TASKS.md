@@ -112,6 +112,65 @@
 **Command:** `PYTHONUNBUFFERED=1 ./.venv/bin/python tools/run_campaign.py campaigns/v2_full.yaml --resume`
 **Notes:** Campaign runner handles sequencing (T0 pass1→pass2→pass3→T1→T2). Dashboard on port 5051. Run `--skip-completed` prevents re-runs on resume.
 
+### T12: Fix missing bib entries
+**Priority:** P1 (blocks LaTeX compilation)
+**Acceptance criteria:**
+- `references.bib` has valid entries for `aider2023` and `lv2011lower`
+- `make -C research_report` compiles without bib errors
+**Owner:** unassigned
+**Status:** `[BACKLOG]`
+**Notes:** Both are cited in `sections/03_method.tex`. Missing entries will cause `bibtex` failure.
+
+### T13: Implement correct bootstrap CIs for retrieval F1
+**Priority:** P1 (paper statistical claims)
+**Acceptance criteria:**
+- Resample per-issue paired F1 deltas (not 3 run-level means as in V1 buggy impl)
+- 10,000 resamples, 95% CI reported for each GM-vs-baseline pair
+- Implemented in `tools/aggregate_v2_results.py`, outputs to `retrieval_ci.csv`
+- Unit test with mock issue-level data
+**Owner:** unassigned
+**Status:** `[BACKLOG]`
+**Depends on:** T10 (needs T0 retrieval data)
+**Notes:** V1 CI implementation (run_experiment.py:58-83) bootstraps 3 run means — critically wrong. V2 aggregation has no CI code at all.
+
+### T14: Implement McNemar with instance-level vectors + Holm-Bonferroni
+**Priority:** P1 (paper significance claims)
+**Acceptance criteria:**
+- `compute_mcnemar()` in `aggregate_v2_results.py` reads per-instance resolved/not-resolved from `predictions.json` files
+- Pairwise tests: gm_progressive vs each of (rag_progressive, bm25, repomap_like, agentless_like, agentic_cold_start)
+- Holm-Bonferroni correction applied across all tests
+- Outputs p-values + corrected p-values to `mcnemar.txt`
+- Unit test with mock binary vectors
+**Owner:** unassigned
+**Status:** `[BACKLOG]`
+**Depends on:** T10 (needs T2 Stage 2 resolved vectors)
+
+### T15: Add binomial CIs to patching resolve rates
+**Priority:** P1 (paper tables)
+**Acceptance criteria:**
+- Wilson 95% CIs added to `patching.csv` columns `ci_lower`, `ci_upper`
+- LaTeX table shows `43% [38, 48]` format
+- Implemented in `aggregate_v2_results.py`
+**Owner:** unassigned
+**Status:** `[BACKLOG]`
+**Depends on:** T10
+
+### T16: Write Threats to Validity section
+**Priority:** P2
+**Acceptance criteria:**
+- `sections/07_threats_to_validity.tex` covers at minimum:
+  1. Single LLM provider (Gemini only — generalizability)
+  2. Python-only evaluation
+  3. SWE-bench population bias (popular, well-tested repos)
+  4. LLM non-determinism despite temperature=0
+  5. Agentless-like is graph-augmented (not faithful reproduction)
+  6. repomap_like uses PageRank (not Aider's actual repo map)
+  7. Single repair sample vs Agentless 40-sample
+  8. Seaborn (n=2) and Flask (n=1) too small for per-repo analysis
+**Owner:** unassigned
+**Status:** `[BACKLOG]`
+**Depends on:** T11
+
 ### T11: T3 aggregation and paper filling
 **Priority:** P1 (after T10 complete)
 **Acceptance criteria:**
