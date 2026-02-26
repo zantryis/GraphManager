@@ -590,19 +590,20 @@ def _build_method_scoped_commit_context(
             "gm_deterministic": {"embedding_tokens": graph_tokens},
             "gm_baseline": {"embedding_tokens": graph_tokens},
         }
+        graph_file_paths = {
+            str(node_id)
+            for node_id, node_data in graph.nodes(data=True)
+            if node_data.get("type") == "file"
+        }
         validate_commit_context_fn(
-            {"graph_file_paths": set(), "setup_costs": setup_costs},
+            {"graph_file_paths": graph_file_paths, "setup_costs": setup_costs},
             required_methods=(retrieval_method,),
         )
         context.update(
             {
                 "graph": graph,
                 "graph_index": graph_index,
-                "graph_file_paths": {
-                    str(node_id)
-                    for node_id, node_data in graph.nodes(data=True)
-                    if node_data.get("type") == "file"
-                },
+                "graph_file_paths": graph_file_paths,
                 "retrieval_setup_tokens": graph_tokens,
                 "setup_tokens_graph_built": graph_tokens,
                 "setup_tokens_method_accounted": graph_tokens,

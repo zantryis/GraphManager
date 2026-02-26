@@ -660,6 +660,38 @@ class MethodScopedIndexBuildTests(unittest.TestCase):
         self.assertEqual(context["retrieval_setup_tokens"], 0)
         self.assertEqual(context["setup_tokens_method_accounted"], 0)
 
+    def test_method_scoped_context_gm_passes_graph_file_paths_to_validate(self):
+        """Regression: validate_commit_context_fn must receive actual graph_file_paths,
+        not an empty set. Bug: line 594 previously passed set() unconditionally."""
+        from run_patch import _build_method_scoped_commit_context
+
+        captured = {}
+
+        def validate_fn(context, required_methods=None):
+            captured["graph_file_paths"] = context.get("graph_file_paths")
+
+        for method in ("gm_progressive", "gm_deterministic", "gm_baseline"):
+            captured.clear()
+            MethodScopedIndexBuildTests._FakeGraphBuilder.build_calls = 0
+            MethodScopedIndexBuildTests._FakeGraphIndex.build_calls = 0
+            _build_method_scoped_commit_context(
+                retrieval_method=method,
+                repo_dir="/tmp/repo",
+                prefixes=("requests",),
+                client=object(),
+                graph_builder_cls=self._FakeGraphBuilder,
+                graph_index_cls=self._FakeGraphIndex,
+                rag_index_cls=self._FakeRAGIndex,
+                validate_commit_context_fn=validate_fn,
+            )
+            # _FakeGraphBuilder.build() adds "requests/models.py" as a file node,
+            # so validate_fn must see a non-empty set containing that path.
+            self.assertIn(
+                "requests/models.py",
+                captured.get("graph_file_paths", set()),
+                f"{method}: validate_fn received empty graph_file_paths (bug regression)",
+            )
+
     def test_method_scoped_context_agentless_builds_graph_and_rag(self):
         from run_patch import _build_method_scoped_commit_context
 
