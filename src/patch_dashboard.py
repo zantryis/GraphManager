@@ -363,6 +363,21 @@ def summarize_dashboard_runs(runs: list[dict]) -> dict:
     }
 
 
+def count_unique_manifests_complete(runs: list[dict]) -> int:
+    """Count distinct (repo_name, retrieval_method) pairs that have status='complete'.
+
+    Deduplicates multiple run directories for the same manifest (e.g. from parallel
+    pool race conditions) so the count reflects manifests, not run directories.
+    """
+    return len(
+        {
+            (r["repo_name"], r["retrieval_method"])
+            for r in runs
+            if r.get("status") == "complete" and r.get("repo_name")
+        }
+    )
+
+
 def build_retrieval_status(
     results_root: Path,
     target_repos: list[str],

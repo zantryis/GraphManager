@@ -436,6 +436,27 @@ class PatchDashboardTests(unittest.TestCase):
             self.assertEqual(summary["per_method"]["oracle"]["n_instances"], 2)
 
 
+    def test_count_unique_manifests_complete_deduplicates_same_repo_method(self):
+        from src.patch_dashboard import count_unique_manifests_complete
+
+        runs = [
+            # django gm_progressive: two run dirs (duplicate) — should count once
+            {"repo_name": "django/django", "retrieval_method": "gm_progressive", "status": "complete"},
+            {"repo_name": "django/django", "retrieval_method": "gm_progressive", "status": "complete"},
+            # django bm25: one run dir
+            {"repo_name": "django/django", "retrieval_method": "bm25", "status": "complete"},
+            # pylint gm_progressive: running — should NOT count
+            {"repo_name": "pylint-dev/pylint", "retrieval_method": "gm_progressive", "status": "running"},
+            # entry with missing repo_name — should NOT count
+            {"repo_name": "", "retrieval_method": "bm25", "status": "complete"},
+        ]
+        self.assertEqual(count_unique_manifests_complete(runs), 2)
+
+    def test_count_unique_manifests_complete_empty(self):
+        from src.patch_dashboard import count_unique_manifests_complete
+
+        self.assertEqual(count_unique_manifests_complete([]), 0)
+
     def test_build_retrieval_status_populated_from_summaries(self):
         from src.patch_dashboard import build_retrieval_status
 

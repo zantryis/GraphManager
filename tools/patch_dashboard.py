@@ -27,6 +27,7 @@ if str(ROOT) not in sys.path:
 from src.patch_dashboard import (
     build_retrieval_status,
     collect_dashboard_status,
+    count_unique_manifests_complete,
     load_campaign_state,
     load_manifest_plan_summary,
     summarize_dashboard_runs,
@@ -332,9 +333,14 @@ _HTML = r"""<!DOCTYPE html>
       const runs = data.runs || [], sum = data.summary || {};
       const sc = sum.status_counts || {};
       const eta = data.eta_seconds;
+      const nManifestsDone = data.n_manifests_complete ?? null;
+      const nManifestsPlan = data.summary_plan?.n_manifests_planned ?? null;
 
+      const manifestChip = nManifestsDone !== null && nManifestsPlan !== null
+        ? `<span class="chip ${nManifestsDone >= nManifestsPlan ? 'green' : 'blue'}">Manifests: ${nManifestsDone}/${nManifestsPlan}</span>`
+        : '';
       const chips = [
-        `<span class="chip green">Done ${sc.complete || 0}/${sum.run_count || 0}</span>`,
+        manifestChip,
         (sc.running || 0) > 0 ? `<span class="chip amber">Running ${sc.running}</span>` : '',
         (sc.stalled || 0) > 0 ? `<span class="chip red">Stalled ${sc.stalled}</span>` : '',
         eta ? `<span class="chip blue">ETA ${fmtEta(eta)}</span>` : '',
@@ -523,6 +529,7 @@ def _make_handler(
                     if manifest_list_path else None
                 )
                 summary_all = summarize_dashboard_runs(all_runs)
+                n_manifests_complete = count_unique_manifests_complete(all_runs)
                 # Compute T1 ETA from campaign start time + observed progress rate
                 t1_eta_s = None
                 try:
@@ -545,6 +552,7 @@ def _make_handler(
                     "summary_visible": summarize_dashboard_runs(runs),
                     "summary_started": summary_all,
                     "summary_plan": summary_plan,
+                    "n_manifests_complete": n_manifests_complete,
                     "eta_seconds": t1_eta_s,
                     "runs": runs,
                 }
