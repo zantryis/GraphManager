@@ -24,18 +24,20 @@ steps:
       --max-parallel 3 --skip-completed
 
   - name: t1_patching_stage1
-    description: "T1: Patch generation for all 123 manifests (no Docker)"
+    description: "T1: Patch generation for all 123 manifests (no Docker, stage1_only)"
     command: >
       python tools/run_manifest_pool.py
       --manifest-list campaigns/v2_manifests.txt
       --results-dir results/v2_full_runs
+      --evaluate-mode stage1_only
       --max-parallel-repos 4 --resume-incomplete
 
   - name: t2_patching_stage2
-    description: "T2: SWE-bench harness (Docker) for all completed Stage 1"
+    description: "T2: SWE-bench harness (local Docker) for all completed Stage 1"
     command: >
       python tools/run_manifest_pool.py
       --manifest-list campaigns/v2_manifests.txt
       --results-dir results/v2_full_runs
-      --evaluate
+      --evaluate-mode stage12
+      --execution-mode local
       --max-parallel-repos 4 --resume-incomplete
