@@ -105,7 +105,7 @@ See TASKS.md for the active task. High-level sequence:
 
 | ID | Severity | Description | Status |
 |----|----------|-------------|--------|
-| I1 | HIGH | Retrieval population != patching population | **Fix planned**: T0 expands retrieval to all 12 patching repos |
+| I1 | HIGH | Retrieval population != patching population | **Fixed** 2026-02-25: experiments_retrieval_expansion_v2.yaml now covers all 12 patching repos (flask n=1, requests n=8, seaborn n=2 — SWE-bench Verified limits) |
 | I2 | MEDIUM | Single repair sample vs Agentless 40-sample -- document explicitly | Open -- paper framing |
 | I3 | LOW | `agentless_like_localization` may fall through to deterministic fallback | Telemetry added (2026-02-25): `stage1/2/3_llm_fired` flags in `agentless_like_meta`. Integration wiring confirmed: `evaluation.py:827` passes real client. Validate flags on first T0 agentless_like run. |
 | I4 | LOW | Dataset adapter silently swallows split-load failures | Open -- T7 adds fail-fast |

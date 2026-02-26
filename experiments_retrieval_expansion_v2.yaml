@@ -1,6 +1,5 @@
 # Retrieval expansion: align retrieval eval population with V2 patching population.
-# Adds 9 repos from SWE-bench Verified that are in the patching campaign
-# but missing from the retrieval matrix.
+# Covers all 12 V2 patching repos with all 11 retrieval methods.
 #
 # Run with: ./.venv/bin/python run_suite.py experiments_retrieval_expansion_v2.yaml
 #
@@ -17,9 +16,9 @@
 suite: retrieval-expansion-v2
 
 description: >
-  Expand retrieval evaluation to all 12 V2 patching repos.
-  Eliminates the retrieval/patching population mismatch (STATE.md issue I1).
-  Instance IDs drawn from the first 10 of each V2 Verified patching manifest.
+  Retrieval evaluation for all 12 V2 patching repos (eliminates STATE.md issue I1).
+  Instance IDs match the V2 patching manifests (first 10 per repo, or all if fewer).
+  Flask n=1, requests n=8, seaborn n=2 (SWE-bench Verified limits).
   Runs all 11 methods for full V2 method matrix alignment.
 
 defaults:
@@ -206,4 +205,50 @@ experiments:
       - sympy__sympy-13372
       - sympy__sympy-13480
       - sympy__sympy-13551
+    evaluation_track: strict_commit_fidelity
+
+  # --- flask (n=1, only 1 available in Verified) ---
+  - repo: pallets/flask
+    domain: web_framework
+    source_prefixes: [src/flask]
+    n_issues: 1
+    issue_set_id: issues_verified_flask_v2_1
+    instance_ids:
+      - pallets__flask-5014
+    evaluation_track: strict_commit_fidelity
+
+  # --- requests (n=8, all available in Verified) ---
+  - repo: psf/requests
+    domain: library
+    source_prefixes: [requests]
+    n_issues: 8
+    issue_set_id: issues_verified_requests_v2_8
+    instance_ids:
+      - psf__requests-1142
+      - psf__requests-1724
+      - psf__requests-1766
+      - psf__requests-1921
+      - psf__requests-2317
+      - psf__requests-2931
+      - psf__requests-5414
+      - psf__requests-6028
+    evaluation_track: strict_commit_fidelity
+
+  # --- pytest (n=10 of 19 Verified) ---
+  - repo: pytest-dev/pytest
+    domain: testing_tooling
+    source_prefixes: [src/_pytest, src/pytest]
+    n_issues: 10
+    issue_set_id: issues_verified_pytest_v2_10
+    instance_ids:
+      - pytest-dev__pytest-10051
+      - pytest-dev__pytest-10081
+      - pytest-dev__pytest-10356
+      - pytest-dev__pytest-5262
+      - pytest-dev__pytest-5631
+      - pytest-dev__pytest-5787
+      - pytest-dev__pytest-5809
+      - pytest-dev__pytest-5840
+      - pytest-dev__pytest-6197
+      - pytest-dev__pytest-6202
     evaluation_track: strict_commit_fidelity
