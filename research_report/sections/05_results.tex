@@ -1,15 +1,27 @@
 % TODO: V2 data required
+% NOTE: Patching is the PRIMARY result track (500 instances, full Verified population).
+% Retrieval F1 is SECONDARY / diagnostic (101 instances, n=10 per repo).
+% Lead with §5.1 Patching, then §5.2 Retrieval as supporting evidence.
 \section{Results}
 \label{sec:results}
 
-\subsection{Retrieval Quality}
-\label{sec:main_quality}
-
-\subsection{Per-Repository Analysis}
-\label{sec:per_repo}
-
-\subsection{Cost Analysis}
-\label{sec:cost_results}
-
 \subsection{Patching Results}
 \label{sec:patching_results}
+% Resolve rates per method and repo (Table from patching_table.tex)
+% CPR method-accounted and as-run for GM-P vs RAG-P (both views required by CLAIMS_LOCK)
+% McNemar pairwise tests: gm_progressive vs rag_progressive, bm25, repomap_like, agentless_like, agentic_cold_start
+% Oracle resolve rate as ceiling
+% Language: "exploratory, single run, no confidence intervals" (CLAIMS_LOCK)
+
+\subsection{Retrieval Quality}
+\label{sec:retrieval_quality}
+% F1 per method and repo (Table from retrieval_table.tex)
+% Tier narrative: BM25 < GM-det < GM-prog? (let data speak)
+% Per-repo variation — flag flask (n=1) and seaborn (n=2) as low-confidence cells
+% GM quality claim: "competitive and often higher" — NOT "significantly better" (CLAIMS_LOCK)
+
+\subsection{Cost Breakdown}
+\label{sec:cost_results}
+% Setup vs runtime vs query embedding token decomposition
+% Amortization: graph index setup cost amortized over issues sharing one snapshot
+% Cite only retrieval track for amortization claims (CLAIMS_LOCK — NOT patching runs)

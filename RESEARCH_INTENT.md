@@ -96,8 +96,14 @@ SWE-bench Verified (500 instances across 12 repos):
 astropy, django, matplotlib, seaborn, flask, requests, xarray, pylint,
 pytest, scikit-learn, sphinx, sympy
 
-Retrieval: n=10 per repo (except seaborn n=2), strict_commit_fidelity track.
-Patching: all Verified instances per repo, single run per method.
+Retrieval: n=10 per repo (seaborn n=2, flask n=1, requests n=8 — Verified limits),
+  strict_commit_fidelity track. 101 total instances.
+Patching: all Verified instances per repo (500 total), single run per method.
+
+**Paper structure: patching is the primary result track.**
+Retrieval F1 is diagnostic — it explains *why* methods differ, but the headline
+numbers (resolve rate, CPR) come from patching on the full 500-instance population.
+Section 5 should lead with patching (§5.1), then retrieval as supporting analysis (§5.2).
 
 **Why retrieval alone is not sufficient (prof's feedback):**
 Retrieval-only results don't prove end-to-end viability. Paper 1 must include
