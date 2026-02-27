@@ -22,7 +22,18 @@ def _abs(path: str | Path) -> str:
     return str(Path(path).resolve())
 
 
-def _is_manifest_completed(manifest_path: Path, results_dir: Path) -> bool:
+def _is_manifest_completed(
+    manifest_path: Path,
+    results_dir: Path,
+    *,
+    evaluate_mode: str = "stage1_only",
+) -> bool:
+    """Return True if this manifest is fully complete for the given evaluate_mode.
+
+    stage1_only: complete when any patch_summary.json references this manifest.
+    stage12:     complete only when patch_summary.json also has a non-null harness_run_id
+                 (i.e. Stage 2 / harness evaluation has been run).
+    """
     target = _abs(manifest_path)
     patch_runs = results_dir / "patch_runs"
     if not patch_runs.exists():
@@ -35,8 +46,12 @@ def _is_manifest_completed(manifest_path: Path, results_dir: Path) -> bool:
         manifest = payload.get("manifest")
         if not isinstance(manifest, str):
             continue
-        if _abs(manifest) == target:
-            return True
+        if _abs(manifest) != target:
+            continue
+        # Manifest matches. For stage12, also require harness results.
+        if evaluate_mode == "stage12" and not payload.get("harness_run_id"):
+            continue
+        return True
     return False
 
 
@@ -61,7 +76,19 @@ def _latest_run_activity_ts(run_dir: Path) -> float:
     return ts
 
 
-def _find_latest_incomplete_run_dir(manifest_path: Path, results_dir: Path) -> Path | None:
+def _find_latest_incomplete_run_dir(
+    manifest_path: Path,
+    results_dir: Path,
+    *,
+    evaluate_mode: str = "stage1_only",
+) -> Path | None:
+    """Return the most-recently-active run dir that is incomplete for evaluate_mode.
+
+    stage1_only: only dirs WITHOUT patch_summary.json (Stage 1 not yet finished).
+    stage12:     also includes dirs that HAVE patch_summary.json (Stage 1 done) but
+                 lack a harness_run_id (Stage 2 not yet run) — so the pool can resume
+                 them with --evaluate to add Stage 2.
+    """
     target = _abs(manifest_path)
     patch_runs = results_dir / "patch_runs"
     if not patch_runs.exists():
@@ -71,8 +98,25 @@ def _find_latest_incomplete_run_dir(manifest_path: Path, results_dir: Path) -> P
     for run_dir in patch_runs.iterdir():
         if not run_dir.is_dir():
             continue
-        if (run_dir / "patch_summary.json").exists():
+
+        summary_path = run_dir / "patch_summary.json"
+        if summary_path.exists():
+            # Dir has Stage 1 done. Only relevant for stage12 mode.
+            if evaluate_mode != "stage12":
+                continue
+            try:
+                payload = json.loads(summary_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if payload.get("harness_run_id"):
+                continue  # Stage 2 also done — skip
+            # Stage 1 done, Stage 2 pending: candidate for Stage-2 resumption.
+            manifest_field = payload.get("manifest")
+            if isinstance(manifest_field, str) and _abs(manifest_field) == target:
+                candidates.append((_latest_run_activity_ts(run_dir), run_dir))
             continue
+
+        # No patch_summary.json: Stage 1 not yet complete.
         run_meta = run_dir / "run_meta.json"
         if not run_meta.exists():
             continue
@@ -216,13 +260,15 @@ def main() -> int:
             skipped += 1
             log(f"SKIP excluded repo={repo}: {manifest}")
             continue
-        if _is_manifest_completed(manifest, results_dir):
+        if _is_manifest_completed(manifest, results_dir, evaluate_mode=args.evaluate_mode):
             skipped += 1
             log(f"SKIP completed repo={repo} method={method}: {manifest}")
             continue
         resume_run_dir: Path | None = None
         if args.resume_incomplete:
-            resume_run_dir = _find_latest_incomplete_run_dir(manifest, results_dir)
+            resume_run_dir = _find_latest_incomplete_run_dir(
+                manifest, results_dir, evaluate_mode=args.evaluate_mode
+            )
             if resume_run_dir is not None:
                 log(
                     f"RESUME candidate repo={repo} method={method} "

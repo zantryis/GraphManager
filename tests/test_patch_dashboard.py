@@ -553,5 +553,60 @@ class PatchDashboardTests(unittest.TestCase):
             self.assertEqual(steps[2]["status"], "pending")
 
 
+    def test_collect_dashboard_status_prefers_complete_over_stalled_same_manifest(self):
+        """When two run dirs share the same manifest, the complete one must win even if older."""
+        from src.patch_dashboard import collect_dashboard_status
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            patch_runs = root / "patch_runs"
+
+            manifest = str(root / "my_manifest.yaml")
+            (root / "my_manifest.yaml").write_text(
+                "repo_name: scikit-learn/scikit-learn\nretrieval_method: bm25\n",
+                encoding="utf-8",
+            )
+
+            # Older run: complete (has patch_summary.json)
+            old_run = patch_runs / "20260225_100000"
+            old_run.mkdir(parents=True)
+            self._write_run_meta(old_run, run_id="20260225_100000", manifest=manifest,
+                                  retrieval_method="bm25", n_instances_planned=32)
+            (old_run / "patch_summary.json").write_text(json.dumps({
+                "run_id": "20260225_100000",
+                "repo_name": "scikit-learn/scikit-learn",
+                "retrieval_method": "bm25",
+                "n_instances": 32,
+                "n_patched": 30,
+            }), encoding="utf-8")
+
+            # Newer run: stalled partial (no patch_summary.json, some partial lines)
+            new_run = patch_runs / "20260226_120000"
+            new_run.mkdir(parents=True)
+            self._write_run_meta(new_run, run_id="20260226_120000", manifest=manifest,
+                                  retrieval_method="bm25", n_instances_planned=32)
+            partial = new_run / "predictions_partial.jsonl"
+            partial.write_text('{"id": "1"}\n' * 5, encoding="utf-8")
+            # Touch partial so it has a newer mtime than old_run's summary
+            import time as _time
+            _time.sleep(0.01)
+            partial.touch()
+
+            from src.patch_dashboard import count_unique_manifests_complete
+            records = collect_dashboard_status(root, stale_after_minutes=0.001,
+                                               include_complete=True, include_stale=True)
+            # The complete run must appear in the results for counting purposes.
+            complete_for_manifest = [
+                r for r in records
+                if r.get("manifest_path") == manifest and r.get("status") == "complete"
+            ]
+            self.assertGreaterEqual(len(complete_for_manifest), 1,
+                "Complete run must be visible in results even when a newer partial dir exists")
+            # The completion counter must see it as done.
+            n = count_unique_manifests_complete(records)
+            self.assertEqual(n, 1,
+                "count_unique_manifests_complete must count the completed pair")
+
+
 if __name__ == "__main__":
     unittest.main()

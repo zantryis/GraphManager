@@ -1,3 +1,4 @@
+import inspect
 import json
 import os
 import tempfile
@@ -183,6 +184,118 @@ class ManifestPoolTests(unittest.TestCase):
             (run_dir / "patch_summary.json").write_text("{}", encoding="utf-8")
 
             self.assertIsNone(_find_latest_incomplete_run_dir(manifest, results_dir))
+
+
+    # ── T2 design gap: evaluate_mode-aware completion checks ──────────────────
+
+    def _make_manifest_and_summary(self, tmpdir: str, *, harness_run_id=None):
+        """Helper: create a manifest file and a patch_summary.json that references it."""
+        root = Path(tmpdir)
+        results_dir = root / "results"
+        patch_runs = results_dir / "patch_runs"
+        patch_runs.mkdir(parents=True, exist_ok=True)
+        manifest = root / "patch_manifests" / "m.yaml"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text("repo_name: demo/repo\n", encoding="utf-8")
+
+        run_dir = patch_runs / "20260101_000001"
+        run_dir.mkdir()
+        (run_dir / "run_meta.json").write_text(
+            json.dumps({"manifest": str(manifest.resolve())}),
+            encoding="utf-8",
+        )
+        summary = {
+            "manifest": str(manifest.resolve()),
+            "harness_run_id": harness_run_id,
+        }
+        (run_dir / "patch_summary.json").write_text(
+            json.dumps(summary), encoding="utf-8"
+        )
+        return manifest, results_dir, run_dir
+
+    def test_is_manifest_completed_stage12_returns_false_when_harness_run_id_null(self):
+        """T2 gap: stage12 mode must NOT treat Stage-1-only runs as complete."""
+        from tools.run_manifest_pool import _is_manifest_completed
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest, results_dir, _ = self._make_manifest_and_summary(
+                tmpdir, harness_run_id=None
+            )
+            self.assertFalse(
+                _is_manifest_completed(manifest, results_dir, evaluate_mode="stage12"),
+                "Stage-1-only run (harness_run_id=null) must not be complete for stage12",
+            )
+
+    def test_is_manifest_completed_stage12_returns_true_when_harness_run_id_set(self):
+        """T2 gap: stage12 mode treats runs with harness_run_id set as complete."""
+        from tools.run_manifest_pool import _is_manifest_completed
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest, results_dir, _ = self._make_manifest_and_summary(
+                tmpdir, harness_run_id="graphmanager_20260227_gm_progressive_abc123"
+            )
+            self.assertTrue(
+                _is_manifest_completed(manifest, results_dir, evaluate_mode="stage12"),
+                "Stage-1+2 run (harness_run_id set) must be complete for stage12",
+            )
+
+    def test_is_manifest_completed_stage1only_true_regardless_of_harness_run_id(self):
+        """Backward compat: stage1_only mode treats any patch_summary.json as complete."""
+        from tools.run_manifest_pool import _is_manifest_completed
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest, results_dir, _ = self._make_manifest_and_summary(
+                tmpdir, harness_run_id=None
+            )
+            self.assertTrue(
+                _is_manifest_completed(manifest, results_dir, evaluate_mode="stage1_only"),
+                "Stage-1-only run must be complete for stage1_only mode (backward compat)",
+            )
+
+    def test_find_incomplete_stage12_returns_stage1_complete_dir(self):
+        """T2 gap: stage12 mode must surface Stage-1-complete dirs for Stage-2 resumption."""
+        from tools.run_manifest_pool import _find_latest_incomplete_run_dir
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest, results_dir, run_dir = self._make_manifest_and_summary(
+                tmpdir, harness_run_id=None
+            )
+            result = _find_latest_incomplete_run_dir(
+                manifest, results_dir, evaluate_mode="stage12"
+            )
+            self.assertEqual(
+                result,
+                run_dir,
+                "stage12 mode must return Stage-1-complete dir so Stage 2 can run",
+            )
+
+    def test_find_incomplete_stage1only_skips_stage1_complete_dir(self):
+        """Backward compat: stage1_only mode skips dirs with patch_summary.json."""
+        from tools.run_manifest_pool import _find_latest_incomplete_run_dir
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest, results_dir, _ = self._make_manifest_and_summary(
+                tmpdir, harness_run_id=None
+            )
+            result = _find_latest_incomplete_run_dir(
+                manifest, results_dir, evaluate_mode="stage1_only"
+            )
+            self.assertIsNone(
+                result,
+                "stage1_only mode must not return Stage-1-complete dir (backward compat)",
+            )
+
+    def test_run_repo_issue_batch_closes_git_repo(self):
+        """Git hang: _run_repo_issue_batch must call repo_git.close() in its finally block."""
+        import run_patch
+
+        src = inspect.getsource(run_patch.run_patch_pipeline)
+        self.assertIn(
+            "repo_git.close()",
+            src,
+            "repo_git.close() must appear in run_patch_pipeline source to prevent "
+            "git cat-file subprocess leaks (see dev_logs/2026-02-27-t1-monitoring-stall-recovery.md)",
+        )
 
 
 if __name__ == "__main__":

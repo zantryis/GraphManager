@@ -1,7 +1,7 @@
 # STATE.md -- Current project status
 
-Last updated: 2026-02-25
-Last agent: Claude (P0 bug fixes from external rigor audit)
+Last updated: 2026-02-27 ~13:20 MST
+Last agent: Claude (T1 campaign monitoring + stalled worker recovery)
 
 ---
 
@@ -54,13 +54,21 @@ Full scope: `RESEARCH_INTENT.md`. Permitted claims: `CLAIMS_LOCK.md`.
 - 274 unit tests passing (was 263 before this session)
 - **rag_metadata baseline** (2026-02-25): `RAGMetadataIndex` added to `src/rag_baseline.py`; wired into `src/evaluation.py` and `run_patch.py`; 12 new patching manifests generated; `rag_metadata` added to `ALL_METHODS` and retrieval expansion YAML. Isolates graph structure contribution from embedding-content choice.
 - **Campaign reordered T1 → T2 → T0** (2026-02-25): T1 (patch Stage 1) runs first to capture retrieval F1 for all 11 patching methods × 500 instances for free. T0 now covers only 3 retrieval-only ablations (gm_baseline, rag_baseline, rag_metadata). T2 uses Modal.
-- 288 unit tests passing
+- 288 unit tests passing (297 after T1 hotfix 2026-02-27)
 - **P0 retrieval eval bug fixes** (2026-02-25, external rigor audit):
   - `evaluation.py`: extracted `_build_agentic_methods()`; ManagerAgent + RAGAgent now receive `model=model_name` (were silently falling back to `gemini-2.0-flash` while agentless/cold-start got `gemini-3-flash-preview`)
   - `evaluation.py`: `rag_progressive` + `rag_baseline` now receive `symmetric_tools=True` + `repo_dir` (were getting 1 tool vs GM's 3 — biased retrieval comparison)
   - `agentless_like_localization.py`: all 3 stage LLM calls now set `temperature=0.0` (were using API default ~1.0 — non-deterministic vs all other methods)
   - 3 new tests covering all three fixes; 291 tests total
   - No data corruption: agentless_like T1 manifests had not yet started; T0 retrieval eval has not started
+- **Dashboard deduplication fix** (2026-02-27): `collect_dashboard_status()` was keeping the newest run by timestamp, causing stalled partial dirs to hide completed runs in `count_unique_manifests_complete`. Fix: when one run is `complete` and another is not, keep both records so the counter sees the complete one while active-only views still surface the live attempt. 1 new test (`test_collect_dashboard_status_prefers_complete_over_stalled_same_manifest`); **298 tests total, all pass**. Dashboard now shows 115/135 (was 108/135).
+- **T1 campaign hotfix** (2026-02-27): `repo_name=null` in all 140 `patch_summary.json` files caused `aggregate_v2_results.py` to silently discard every patching run (0 rows). Root cause: `run_patch_stage1()` omitted `repo_name` from the Stage-1 summary dict. Three-part fix:
+  - `tools/aggregate_v2_results.py`: fallback reads `repo_name` from adjacent `run_meta.json` when `patch_summary.json` has null — recovers all 140 completed runs on disk
+  - `run_patch.py` Stage-1 summary dict: added `"repo_name": repo_name` — future runs write correctly
+  - `run_patch.py` `_run_evaluate_only()`: added `repo_name` recovery from manifest alongside existing `split` recovery
+  - 2 new tests (`test_collect_patching_falls_back_to_run_meta_for_repo_name`, source-structure `test_stage1_summary_dict_includes_repo_name`); **297 tests total, all pass**
+  - Aggregate script now outputs `114 cells across 12 repos` (was `0 cells across 0 repos`)
+  - Campaign status: **112/132 unique (repo, method) pairs complete** at time of fix; pool coordinators still running for remaining 20 pairs (django 9 methods, sympy 7 methods + repomap_like for both)
 
 ### V2 method matrix alignment (done 2026-02-25)
 
@@ -100,14 +108,20 @@ raw_rag_fixed, rag_metadata, bm25, agentic_cold_start, repomap_like, agentless_l
 
 See TASKS.md for the active task. High-level sequence:
 
-1. **Launch campaign**: `PYTHONUNBUFFERED=1 ./.venv/bin/python tools/run_campaign.py campaigns/v2_full.yaml --resume`
-   - T1 (patch Stage 1, 135 manifests, max-parallel-repos 4) → T2 (Modal harness, max-parallel-repos 8) → T0 (3 retrieval-only ablations, max-parallel 3)
-   - T1 captures retrieved_files + gold_files for free retrieval F1 extraction on 500-instance population
-   - Dashboard at `tools/patch_dashboard.py --port 5051` shows live Retrieval grid + Campaign steps
-2. **Monitor** via dashboard. Wake Claude when campaign tab shows T2 done.
-3. **T3**: `python tools/aggregate_v2_results.py --results-root results --output-dir results/v2_scorecard`
-4. **T4**: Priority ablations (if needed)
-5. **T5**: Fill V2 paper sections with data (research_report/sections/)
+1. **T1 campaign** (IN PROGRESS as of 2026-02-27 ~13:20 MST): Pool PID **8246** (task `bli2am9bv`) running. **115/135** manifests complete (pool sees 117–118 due to counting method differences). Workers active after stalled-worker recovery:
+   - W1: django/django / gm_deterministic (resume, 37/231 already done before stall recovery — was on agentless which stalled)
+   - W3: sympy/sympy / gm_deterministic (resume, 5/75 already done — was on agentless which stalled)
+   - W2: idle (completed matplotlib/raw_rag_fixed at 11:22 — no remaining standalone repos)
+   - Remaining in each queue: django has 8 more methods after gm_deterministic (gm_progressive, oracle, rag_metadata, rag_progressive, raw_rag_fixed, raw_rag_function, repomap_like + agentless partial); sympy has 7 more.
+   - **Stalled worker incident (2026-02-27 ~13:17)**: W1 and W3 were stuck on agentless_like_localization for 2h20m with `git cat-file --batch-check` subprocesses hung. No output in predictions_partial since 01:33 AM (django) and ~22:50 yesterday (sympy). Pool has no manifest timeout (`--manifest-timeout-s 0`). Sent SIGTERM to 8309+8310 — pool advanced to gm_deterministic for both repos. Agentless checkpoints preserved (45/231 django, 8/75 sympy).
+   - Dashboard at `tools/patch_dashboard.py` on port 5051 (background task `b5q0yfve6`)
+   - Pool log: `/tmp/pool_t1_live.log`
+   - **To resume agentless separately** (after gm_det/gm_prog complete): launch a separate pool with agentless manifests only, using `--manifest-timeout-s 7200` (2h hard timeout per instance).
+2. **T2 (Modal harness)**: ⚠️ **DESIGN GAP IDENTIFIED** — `_is_manifest_completed()` in `run_manifest_pool.py` returns True for any manifest with `patch_summary.json`, regardless of whether Stage 2 (harness) has been run. T2 pool with `--evaluate-mode stage12 --resume-incomplete` would **SKIP all 115 Stage-1-complete manifests** (treating them as fully done). T2 CANNOT be started on Stage-1-complete pairs without a code fix. See Parking Lot. Modal token IS configured (workspace: boblycheeee, created 2026-02-22). Campaign state: T1="running", T2="pending".
+3. **Monitor** via dashboard. Wake Claude when T1 is 100% complete, then address T2 design gap before running harness.
+4. **T3**: `python tools/aggregate_v2_results.py --results-root results --output-dir results/v2_scorecard`
+5. **T4**: Priority ablations (if needed)
+6. **T5**: Fill V2 paper sections with data (research_report/sections/)
 
 ---
 
@@ -149,3 +163,5 @@ See TASKS.md for the active task. High-level sequence:
 - Add warning log in `aggregate_v2_results.py` when multiple runs exist for same (repo, method) (see I14)
 - Add data availability statement to paper (see I16)
 - Recalibrate CLAIMS_LOCK.md after V2 data lands (N=500 changes power substantially vs V1 N=100)
+- **T2 design gap**: Fix `_is_manifest_completed()` in `run_manifest_pool.py` to check for Stage 2 completion (e.g., check `n_resolved` in patch_summary.json or presence of harness_run_id) when evaluate_mode=stage12. Currently it returns True for any run with patch_summary.json (Stage 1 done), so the T2 pool skips all Stage-1-complete manifests without running the harness. Workaround: run `_run_evaluate_only()` directly per run_dir after T1 completes.
+- Add `--manifest-timeout-s` to future agentless pool runs (2h = 7200s) to prevent git cat-file hangs from blocking an entire repo queue indefinitely.

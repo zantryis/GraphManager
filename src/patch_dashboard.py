@@ -286,6 +286,22 @@ def collect_dashboard_status(
             by_manifest[manifest_path] = record
             continue
 
+        prior_status = prior.get("status") or "stalled"
+        record_status = record.get("status") or "stalled"
+
+        # When one run is complete and the other is not, keep BOTH records.
+        # This lets count_unique_manifests_complete see the completed run while
+        # active-only views (include_complete=False) still surface the live attempt.
+        # Without this, a newer partial/stalled dir silently hides the completed run
+        # in the completion counter.
+        if (prior_status == "complete") != (record_status == "complete"):
+            deduped.append(record)  # add the non-winning record directly
+            # prior stays in by_manifest unchanged; do not overwrite
+            if record_status == "complete":
+                by_manifest[manifest_path] = record
+                # prior (non-complete) already appended above; done
+            continue
+
         prior_ts = float(prior.get("last_seen_ts") or 0.0)
         record_ts = float(record.get("last_seen_ts") or 0.0)
         if record_ts >= prior_ts:

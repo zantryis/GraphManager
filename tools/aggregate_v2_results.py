@@ -164,6 +164,10 @@ def collect_patching_results(results_root: Path) -> dict[str, dict[str, dict]]:
         if not data:
             continue
         repo = str(data.get("repo_name") or "")
+        if not repo:
+            run_meta = _load_json(summary_path.parent / "run_meta.json")
+            if run_meta:
+                repo = str(run_meta.get("repo_name") or "")
         method = str(data.get("retrieval_method") or "")
         run_id = summary_path.parent.name
         if not repo or not method:

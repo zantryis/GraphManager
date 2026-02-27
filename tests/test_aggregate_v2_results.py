@@ -128,6 +128,42 @@ class AggregateV2ResultsTests(unittest.TestCase):
             self.assertEqual(len(flask_gm_rows), 1)
             self.assertEqual(float(flask_gm_rows[0]["resolve_rate"]), 0.4)
 
+    def test_collect_patching_falls_back_to_run_meta_for_repo_name(self):
+        """When patch_summary.json has repo_name=null, fall back to run_meta.json."""
+        from tools.aggregate_v2_results import collect_patching_results
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            run_dir = root / "v2_full_runs" / "patch_runs" / "20260226_999999"
+            run_dir.mkdir(parents=True)
+            # patch_summary.json with null repo_name (as produced by Stage-1-only runs)
+            summary = {
+                "repo_name": None,
+                "retrieval_method": "bm25",
+                "n_instances": 8,
+                "n_patched": 5,
+                "harness_results": {"n_resolved": 3, "resolved_rate": 0.375},
+                "total_cost_tokens": 80000,
+                "cost_per_resolved_issue": None,
+            }
+            (run_dir / "patch_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+            # run_meta.json carries the correct repo_name
+            run_meta = {
+                "repo_name": "psf/requests",
+                "retrieval_method": "bm25",
+                "n_instances_planned": 8,
+                "manifest": "psf_requests_bm25_v1.yaml",
+            }
+            (run_dir / "run_meta.json").write_text(json.dumps(run_meta), encoding="utf-8")
+
+            patching = collect_patching_results(root)
+            self.assertIn(
+                "psf/requests",
+                patching,
+                "repo_name from run_meta.json must be used when patch_summary has null",
+            )
+            self.assertIn("bm25", patching["psf/requests"])
+
     def test_mcnemar_insufficient_data_does_not_crash(self):
         from tools.aggregate_v2_results import compute_mcnemar
 

@@ -1248,13 +1248,15 @@ def _run_evaluate_only(run_dir: str, modal: bool = False) -> dict:
     instance_ids = [r["instance_id"] for r in per_instance]
     n_total = summary.get("n_instances", len(instance_ids))
 
-    # Recover split from the manifest if it still exists, otherwise default to "test"
+    # Recover split and repo_name from the manifest if it still exists
     split = "test"
     manifest_path = summary.get("manifest", "")
     if manifest_path and Path(manifest_path).exists():
         try:
             manifest = yaml.safe_load(Path(manifest_path).read_text())
             split = manifest.get("split", "test")
+            if not summary.get("repo_name"):
+                summary["repo_name"] = manifest.get("repo_name", "")
         except Exception:
             pass
 
@@ -1571,6 +1573,7 @@ def run_patch_pipeline(
             api_key=api_key,
             http_options=genai_types.HttpOptions(httpx_client=local_httpx_client),
         )
+        repo_git = None  # closed in finally to prevent git cat-file subprocess leak
 
         try:
             import git as _git
@@ -1923,6 +1926,11 @@ def run_patch_pipeline(
                 "setup_tokens_method_accounted": local_setup_tokens_method,
             }
         finally:
+            if repo_git is not None:
+                try:
+                    repo_git.close()
+                except Exception:
+                    pass
             try:
                 local_httpx_client.close()
             except Exception:
@@ -2025,6 +2033,7 @@ def run_patch_pipeline(
         "manifest": manifest_path,
         "dataset_name": dataset_name,
         "retrieval_method": retrieval_method,
+        "repo_name": repo_name,
         "retrieval_max_files_for_patch": retrieval_max_files_for_patch,
         "n_instances": n_total,
         "n_patched": n_patched,
