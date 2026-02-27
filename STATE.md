@@ -163,5 +163,6 @@ See TASKS.md for the active task. High-level sequence:
 - Add warning log in `aggregate_v2_results.py` when multiple runs exist for same (repo, method) (see I14)
 - Add data availability statement to paper (see I16)
 - Recalibrate CLAIMS_LOCK.md after V2 data lands (N=500 changes power substantially vs V1 N=100)
-- **T2 design gap**: Fix `_is_manifest_completed()` in `run_manifest_pool.py` to check for Stage 2 completion (e.g., check `n_resolved` in patch_summary.json or presence of harness_run_id) when evaluate_mode=stage12. Currently it returns True for any run with patch_summary.json (Stage 1 done), so the T2 pool skips all Stage-1-complete manifests without running the harness. Workaround: run `_run_evaluate_only()` directly per run_dir after T1 completes.
-- Add `--manifest-timeout-s` to future agentless pool runs (2h = 7200s) to prevent git cat-file hangs from blocking an entire repo queue indefinitely.
+- ~~T2 design gap~~: **FIXED** 2026-02-27 (commit 9d9c274). `_is_manifest_completed()` and `_find_latest_incomplete_run_dir()` now accept `evaluate_mode`; stage12 mode checks `harness_run_id`. 5 new tests.
+- ~~Agentless git hang~~: **FIXED** 2026-02-27 (commit 9d9c274). `repo_git.close()` in finally block of `_run_repo_issue_batch()`. 1 structural test.
+- Add `--manifest-timeout-s 7200` to agentless rerun pool as belt-and-suspenders (even after git close() fix).
