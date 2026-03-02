@@ -1,7 +1,7 @@
 # STATE.md -- Current project status
 
-Last updated: 2026-02-27 ~13:20 MST
-Last agent: Claude (T1 campaign monitoring + stalled worker recovery)
+Last updated: 2026-03-02 MST
+Last agent: Claude (128/135 T1 complete; migrating to high-RAM server for T1 finish + T2 local Docker)
 
 ---
 
@@ -54,7 +54,7 @@ Full scope: `RESEARCH_INTENT.md`. Permitted claims: `CLAIMS_LOCK.md`.
 - 274 unit tests passing (was 263 before this session)
 - **rag_metadata baseline** (2026-02-25): `RAGMetadataIndex` added to `src/rag_baseline.py`; wired into `src/evaluation.py` and `run_patch.py`; 12 new patching manifests generated; `rag_metadata` added to `ALL_METHODS` and retrieval expansion YAML. Isolates graph structure contribution from embedding-content choice.
 - **Campaign reordered T1 → T2 → T0** (2026-02-25): T1 (patch Stage 1) runs first to capture retrieval F1 for all 11 patching methods × 500 instances for free. T0 now covers only 3 retrieval-only ablations (gm_baseline, rag_baseline, rag_metadata). T2 uses Modal.
-- 288 unit tests passing (297 after T1 hotfix 2026-02-27)
+- 288 unit tests passing (304 after T1 hotfix + T2 gap fix + git hang fix 2026-02-27)
 - **P0 retrieval eval bug fixes** (2026-02-25, external rigor audit):
   - `evaluation.py`: extracted `_build_agentic_methods()`; ManagerAgent + RAGAgent now receive `model=model_name` (were silently falling back to `gemini-2.0-flash` while agentless/cold-start got `gemini-3-flash-preview`)
   - `evaluation.py`: `rag_progressive` + `rag_baseline` now receive `symmetric_tools=True` + `repo_dir` (were getting 1 tool vs GM's 3 — biased retrieval comparison)
@@ -108,17 +108,23 @@ raw_rag_fixed, rag_metadata, bm25, agentic_cold_start, repomap_like, agentless_l
 
 See TASKS.md for the active task. High-level sequence:
 
-1. **T1 campaign** (IN PROGRESS as of 2026-02-27 ~13:20 MST): Pool PID **8246** (task `bli2am9bv`) running. **115/135** manifests complete (pool sees 117–118 due to counting method differences). Workers active after stalled-worker recovery:
-   - W1: django/django / gm_deterministic (resume, 37/231 already done before stall recovery — was on agentless which stalled)
-   - W3: sympy/sympy / gm_deterministic (resume, 5/75 already done — was on agentless which stalled)
-   - W2: idle (completed matplotlib/raw_rag_fixed at 11:22 — no remaining standalone repos)
-   - Remaining in each queue: django has 8 more methods after gm_deterministic (gm_progressive, oracle, rag_metadata, rag_progressive, raw_rag_fixed, raw_rag_function, repomap_like + agentless partial); sympy has 7 more.
-   - **Stalled worker incident (2026-02-27 ~13:17)**: W1 and W3 were stuck on agentless_like_localization for 2h20m with `git cat-file --batch-check` subprocesses hung. No output in predictions_partial since 01:33 AM (django) and ~22:50 yesterday (sympy). Pool has no manifest timeout (`--manifest-timeout-s 0`). Sent SIGTERM to 8309+8310 — pool advanced to gm_deterministic for both repos. Agentless checkpoints preserved (45/231 django, 8/75 sympy).
-   - Dashboard at `tools/patch_dashboard.py` on port 5051 (background task `b5q0yfve6`)
-   - Pool log: `/tmp/pool_t1_live.log`
-   - **To resume agentless separately** (after gm_det/gm_prog complete): launch a separate pool with agentless manifests only, using `--manifest-timeout-s 7200` (2h hard timeout per instance).
-2. **T2 (Modal harness)**: ⚠️ **DESIGN GAP IDENTIFIED** — `_is_manifest_completed()` in `run_manifest_pool.py` returns True for any manifest with `patch_summary.json`, regardless of whether Stage 2 (harness) has been run. T2 pool with `--evaluate-mode stage12 --resume-incomplete` would **SKIP all 115 Stage-1-complete manifests** (treating them as fully done). T2 CANNOT be started on Stage-1-complete pairs without a code fix. See Parking Lot. Modal token IS configured (workspace: boblycheeee, created 2026-02-22). Campaign state: T1="running", T2="pending".
-3. **Monitor** via dashboard. Wake Claude when T1 is 100% complete, then address T2 design gap before running harness.
+1. **T1 campaign** (**128/135 COMPLETE** as of 2026-03-02): 7 manifests pending (all django/sympy), all with checkpoints. Migrating to high-RAM server (~500GB) for final 7 + T2 harness.
+   - **Pending**: django/rag_metadata (120ckpt), django/rag_progressive (fresh), django/raw_rag_fixed (111ckpt), django/raw_rag_function (fresh), django/repomap_like (fresh), sympy/raw_rag_function (fresh), sympy/repomap_like (fresh)
+   - **Data integrity**: VERIFIED. 128 complete summaries all have valid predictions.json. 117 NULL repo_name in old patch_summary.json files — all recoverable via run_meta.json fallback in aggregate_v2_results.py.
+   - **OOM lessons (DO NOT repeat on any machine)**: `--run-workers 1` always. `--max-parallel-repos 4` safe on 500GB server; never exceed 4 for embed-heavy methods even with high RAM (Gemini API quota is the real bottleneck).
+   - Local pool was stopped before migration. All checkpoints intact in `results/v2_full_runs/`.
+   - Server T1 command: `--max-parallel-repos 4 --run-workers 1 --evaluate-mode stage1_only --resume-incomplete`
+2. **T2 (harness eval)**: **DESIGN GAP FIXED** (commit 9d9c274). Modal credits EXPIRED — use `--execution-mode local` with Docker on server. Run after T1 100% on server:
+   ```
+   PYTHONUNBUFFERED=1 ./.venv/bin/python -u tools/run_manifest_pool.py \
+     --manifest-list campaigns/v2_manifests.txt \
+     --results-dir results/v2_full_runs \
+     --evaluate-mode stage12 --execution-mode local \
+     --max-parallel-repos 8 --run-workers 1 \
+     --resume-incomplete
+   ```
+   Requires Docker on server. Pre-pull images: `docker pull swebench/sweb.eval.x86_64.django_django:latest` to test.
+3. **T3**: `python tools/aggregate_v2_results.py --results-root results --output-dir results/v2_scorecard`
 4. **T3**: `python tools/aggregate_v2_results.py --results-root results --output-dir results/v2_scorecard`
 5. **T4**: Priority ablations (if needed)
 6. **T5**: Fill V2 paper sections with data (research_report/sections/)

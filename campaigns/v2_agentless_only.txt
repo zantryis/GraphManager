@@ -1,0 +1,2 @@
+patch_manifests/v2_verified/django_django_agentless_like_localization_v1.yaml
+patch_manifests/v2_verified/sympy_sympy_agentless_like_localization_v1.yaml
