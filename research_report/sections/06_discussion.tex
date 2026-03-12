@@ -1,3 +1,40 @@
-% TODO: V2 data required
 \section{Discussion}
 \label{sec:discussion}
+
+\subsection{Why Does Structural Context Work Well?}
+
+The strong performance of GM-P relative to embedding-based alternatives can be attributed to a fundamental property of source code: \emph{dependencies are explicit and deterministic}. Import statements, function calls, class inheritance hierarchies, and module boundaries are syntactically recoverable through static analysis without requiring learned representations. For bug-fixing tasks, the relevant context is overwhelmingly \emph{structurally adjacent} to the fault locale---callers and callees of the buggy function, sibling methods in the same class, overridden methods in parent classes, and co-imported utility functions.
+
+Embedding-based retrieval, by contrast, operates on distributional similarity in a learned vector space. While this can surface semantically related code, it may also retrieve code that is topically similar but structurally irrelevant---for example, a different module's error-handling routine that uses similar vocabulary but shares no dependency relationship with the fault. Such false positives consume the LLM's finite context window without contributing to patch generation. The graph model's progressive expansion avoids this failure mode by construction: every node added to the context is reachable via an explicit dependency edge from the seed locale.
+
+The comparison between GM-P and GM-D (46.8\% vs.\ 32.6\%) further isolates the contribution of \emph{LLM-guided} expansion. The graph structure alone (GM-D) provides a useful skeleton, but the LLM's ability to rank candidate nodes by relevance to the specific issue---effectively pruning irrelevant branches of the dependency graph---yields a 14.2-point improvement. This suggests that the combination of structural constraints (limiting \emph{where} to look) and semantic judgment (deciding \emph{what} to include) is more effective than either alone.
+
+\subsection{Cost Efficiency in Depth}
+
+The cost advantage of GM-P has both a \emph{fixed} and a \emph{variable} component. The fixed component---graph construction via static analysis---requires no LLM or embedding API calls and scales linearly with repository size. The variable component---LLM-guided progressive expansion---involves a small number of ranking calls per issue, typically 3--5 iterations with candidate sets of 10--20 nodes each. By contrast, RAG-based methods incur a fixed cost proportional to the total number of code chunks (for embedding generation) and a variable cost per query that scales with the retrieval depth and re-ranking strategy.
+
+In a deployment scenario such as CI/CD integration, where many issues arise against the same repository snapshot, the graph construction cost is amortized across all issues. As issue volume grows, GM-P's marginal cost per issue approaches only the expansion LLM calls, which are substantially cheaper than the per-issue embedding retrieval costs of RAG methods. This amortization dynamic makes the graph-based approach increasingly favorable at scale.
+
+We reiterate the dual-build disclosure from \S\ref{sec:setup}: the cost figures in Table~\ref{tab:cost} reflect method-accounted attribution. In the actual experimental runs, both graph and RAG indices were constructed for every condition due to an architectural coupling in the harness. The as-run-consumed costs, reported in Appendix~\ref{app:per_repo}, are uniformly higher but do not change the relative ordering of methods.
+
+\subsection{Complementarity and the Oracle Gap}
+
+The 7.0-percentage-point gap between GM-P and the oracle (53.8\%) represents 35 instances where at least one alternative method succeeds but GM-P does not. This gap is practically significant: closing it would represent a 15\% relative improvement over GM-P's current resolve rate.
+
+Analysis of the discordant instances reveals that the methods' failure modes are largely complementary. Instances where RAG-based methods succeed and GM-P fails tend to involve: (a)~cross-cutting concerns that span structurally distant modules connected by semantic similarity rather than explicit dependencies, and (b)~issues whose descriptions use domain-specific terminology that aligns well with code comments and docstrings captured by embeddings but not by the dependency graph. Conversely, instances where GM-P succeeds and RAG fails typically involve: (a)~deeply nested dependency chains where the relevant context is 3--5 hops from the fault locale, and (b)~issues requiring understanding of class hierarchies or interface contracts that are explicit in the graph but diluted in embedding space.
+
+These complementary strengths suggest a promising direction for future work: an \emph{adaptive} or \emph{ensemble} strategy that selects or combines context-construction methods based on instance characteristics. A lightweight classifier trained on issue metadata (e.g., number of files mentioned, presence of stack traces, repository structural properties) could route instances to the most appropriate method, potentially approaching the oracle's 53.8\% resolve rate.
+
+\subsection{Interpreting Agentless-Like Localization}
+
+AGL's resolve rate of 22.4\% is notably lower than GM-P's 46.8\%, but this comparison requires careful interpretation. As disclosed in \S\ref{sec:setup}, AGL's Stage~2 refinement uses the GM graph to narrow candidate locations. This means AGL is not a fully independent baseline: its performance is partially dependent on the same graph infrastructure that underlies GM-P. The low resolve rate may reflect suboptimal integration of graph information within the Agentless localization framework rather than a fundamental limitation of the Agentless approach. We include AGL for completeness but caution against interpreting the GM-P vs.\ AGL comparison as evidence that graph-based context is universally superior to Agentless-style localization.
+
+\subsection{Threats to Validity}
+
+\paragraph{Internal validity.} The single-run design does not capture LLM sampling variance. While McNemar's test on 500 paired observations provides adequate power for the observed effect sizes, the smallest significant effects ($h = 0.10$ for RRX and RAG-P) are close to the boundary of practical significance and might not replicate under repeated sampling with nonzero temperature. Future work should conduct multiple runs per method to estimate confidence intervals that account for sampling stochasticity.
+
+\paragraph{Construct validity.} Within-repository clustering may inflate the effective sample size: instances from the same repository share codebase characteristics, dependency structures, and coding conventions. McNemar's test treats all 500 instances as exchangeable, which may understate uncertainty. The per-repository analysis in Appendix~\ref{app:per_repo} provides a partial check, but a mixed-effects model accounting for repository-level random effects would be more rigorous.
+
+\paragraph{External validity.} SWE-bench Verified covers 12 Python repositories. The generalizability of our findings to other languages, repository sizes, or issue types (e.g., feature requests, security vulnerabilities) remains untested. The graph model's reliance on static analysis may be less effective for dynamically typed languages with heavy metaprogramming or for repositories with unconventional module structures.
+
+\paragraph{Reproducibility.} The dual-build artifact in the experimental harness, while not affecting resolve rates, complicates exact cost reproduction. We release the full experimental configuration and logs to enable independent verification.

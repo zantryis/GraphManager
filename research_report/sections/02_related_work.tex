@@ -1,18 +1,18 @@
-% TODO: V2 data required (references can be populated now; prose after data)
-\section{Related Work}
-\label{sec:related_work}
+\section{Background and Related Work}\label{sec:related}
+%% ----------------------------------------------------------------
 
-\subsection{Repository-Level Benchmarks}
-\label{sec:rw_benchmarks}
+\subsection{LLM-Based Automated Program Repair}
 
-\subsection{Graph-Based Code Retrieval}
-\label{sec:rw_graph_retrieval}
+Automated program repair (APR) has evolved from template-based and search-based techniques to LLM-driven approaches that treat patch generation as a conditional text-generation problem. Contemporary systems can be broadly categorized into three paradigms: (i)~\emph{generate-and-validate} methods that sample candidate patches and filter with test suites, (ii)~\emph{conversational or agentic} methods that iteratively explore the repository through tool use~\cite{yang2024sweagent, zhang2024autocoderover}, and (iii)~\emph{localize-then-patch} pipelines that first narrow the search space to a small set of files or functions before invoking the LLM for editing~\cite{xia2024agentless}. SWE-bench~\cite{swebench2024} operationalizes the repository-level repair task: given an issue description and a full repository snapshot, produce a patch that passes held-out tests. Its \emph{Verified} subset, curated through human validation, reduces label noise and has become the primary leaderboard. A key observation across top-performing systems is that they share similar base LLMs; performance differences are driven predominantly by the \emph{context-construction} strategy---i.e., which code the model sees and in what order. Recent multi-language extensions such as SWE-PolyBench~\cite{swepolybench2025} further underscore the generality of this bottleneck.
 
-\subsection{Retrieval-Augmented Generation}
-\label{sec:rw_rag}
+\subsection{Retrieval-Augmented Generation for Code}
 
-\subsection{Automated Issue Resolution Systems}
-\label{sec:rw_issue_resolution}
+Retrieval-augmented generation (RAG)~\cite{lewis2020rag} has become the default mechanism for injecting repository knowledge into an LLM's context window. The standard pipeline chunks source files at function or class granularity, embeds each chunk with a code-aware embedding model, indexes the vectors (e.g., with FAISS~\cite{johnson2021faiss}), and at query time retrieves the top-$k$ chunks most similar to the issue text. Variants differ in embedding model, chunking strategy, re-ranking, and whether retrieval is performed once (fixed-window) or iteratively (progressive). GraphRAG~\cite{edge2024graphrag} augments the pipeline with entity-relationship graphs extracted from documents, while RepoHyper~\cite{repohyper2024} and CodeGraphRAG~\cite{codegraphrag} incorporate repository-specific structural signals into the retrieval index. Despite these advances, the cost structure of RAG---per-token embedding charges, index storage, and the need to re-index after every commit---is rarely quantified in SWE-bench evaluations. Moreover, semantic embeddings can suffer from \emph{drift} on code: identifier names, boilerplate imports, and formatting artifacts may dominate the embedding space, reducing retrieval precision for the structural relationships that matter most for localization.
 
-\subsection{Positioning}
-\label{sec:rw_positioning}
+\subsection{Structural and Graph-Based Code Representations}
+
+Programming languages expose rich structural information that predates the LLM era. Program dependence graphs, call graphs, and import graphs have long been used in software engineering for tasks such as impact analysis, slicing, and fault localization~\cite{lv2011lower}. Tree-sitter~\cite{brunsfeld2018treesitter} provides fast, incremental, language-agnostic parsing that makes it practical to extract function-level dependency edges from large polyglot repositories. RepoGraph~\cite{repograph2024} and GraphCoder~\cite{graphcoder2024} construct repository-level graphs and use them to guide code completion, while RepoScope~\cite{reposcope2025} builds hierarchical structural summaries for navigation. Aider's \texttt{RepoMap}~\cite{aider2023} computes a PageRank-weighted summary of the repository's tag graph to fit a concise structural overview into the LLM's context window. However, none of these systems have been evaluated head-to-head against RAG baselines under controlled conditions on a standardized repair benchmark. Our work fills this gap: we construct a dependency graph using Tree-sitter, expose it to the LLM through agentic tool calls, and compare the resulting localization quality and cost against RAG and other strategies on SWE-bench Verified. We note that our \emph{RepoMap-Like} baseline is a controlled re-implementation that applies PageRank on the import graph rather than a faithful reproduction of Aider's full system; similarly, our \emph{Agentless-Like} baseline re-implements the hierarchical localization stages of Xia et al.~\cite{xia2024agentless} but collapses Stage~3 output to file-level granularity. These design choices are detailed in Section~\ref{sec:method}.
+
+\subsection{Cost-Aware Evaluation of LLM Systems}
+
+A growing body of work advocates for cost- and efficiency-aware evaluation of LLM-based software engineering tools. RepoBench~\cite{repobench2024} and RepoExec~\cite{repoexec2024} measure execution-based metrics beyond textual match, and recent reliability studies of GraphRAG pipelines~\cite{reliablegraphrag2026} highlight the sensitivity of retrieval quality to graph construction choices. Yet cost reporting remains inconsistent: some studies count API dollars, others count tokens, and many report neither. In this work we adopt \emph{tokens consumed per resolved issue} as a reproducible, currency-agnostic cost metric and pair it with statistical significance testing to distinguish genuine quality differences from noise. To our knowledge, this is the first SWE-bench study to report Holm--Bonferroni-corrected McNemar tests across all pairwise method comparisons alongside per-issue cost breakdowns.

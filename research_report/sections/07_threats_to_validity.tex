@@ -1,3 +1,68 @@
-% TODO: V2 data required
 \section{Threats to Validity}
 \label{sec:threats}
+
+\subsection{Internal Validity}
+
+\textbf{Single run per method.}
+LLM outputs are stochastic; our single-run design does not capture sampling variance.
+McNemar's test is valid for the observed paired outcomes across 500 instances, but the resolve rates and pairwise significance results could shift under repeated sampling.
+We consider this the most significant internal threat.
+Future work should employ multi-run designs with variance estimation to strengthen statistical claims.
+
+\textbf{Dual-build confound.}
+The experimental harness constructed both the dependency graph and the RAG vector index for every run, regardless of which retrieval strategy was under evaluation.
+While cost is reported on a method-accounted basis (Section~\ref{sec:results}), subtle runtime interactions---such as filesystem caching, memory pressure from concurrent index structures, or I/O contention---could in principle affect downstream LLM latency or behavior.
+We found no evidence of such effects in our logs but cannot categorically rule them out.
+
+\textbf{Agentless-Like confound.}
+Agentless-Like Localization uses the GM dependency graph during its Stage~2 localization step, making it partially a graph-based method.
+Its lower resolve rate relative to GM-P, despite access to the same graph, suggests that \emph{how} the graph is traversed matters as much as \emph{whether} a graph is available.
+However, this shared dependency means comparisons involving Agentless-Like do not isolate the original Agentless localization strategy~\cite{xia2024agentless} and should be interpreted with this confound in mind.
+
+\subsection{External Validity}
+
+\textbf{Benchmark and language scope.}
+SWE-bench Verified comprises 500 instances drawn from 12 Python repositories.
+Python's dynamic type system and explicit \texttt{import} mechanism may favor or disfavor graph-based approaches relative to statically-typed languages (e.g., Java, TypeScript) where richer type-level dependency information is available at parse time.
+Results may not generalize to other languages, repository sizes, issue types (e.g., feature requests versus bug fixes), or benchmarks.
+
+\textbf{Within-repo clustering.}
+The 500 instances are drawn from only 12 repositories, with highly uneven representation: Django alone contributes 231 instances (46.2\%), while several repositories contribute fewer than 25 (see Table~\ref{tab:per_repo} in the Appendix).
+Instances from the same repository share codebase structure, coding conventions, and dependency patterns, violating the IID assumption.
+McNemar's test conditions on paired outcomes rather than assuming independence across instances, partially mitigating this concern, but repository-level confounds (e.g., a method that happens to suit Django's architecture) could inflate aggregate resolve rates.
+
+\textbf{LLM dependence.}
+All methods use the same downstream LLM for patch generation.
+Results may differ substantially with other models, particularly those with different context-window sizes, code-understanding capabilities, or instruction-following fidelity.
+
+\subsection{Construct Validity}
+
+\textbf{Resolve rate as sole effectiveness metric.}
+We evaluate only end-to-end resolve rate (i.e., whether the generated patch passes the held-out test suite).
+This metric conflates retrieval quality with patch-generation quality: a method may retrieve ideal context yet fail at patch synthesis, or succeed with mediocre context due to LLM robustness.
+We did not execute the retrieval-evaluation track (T0), so retrieval-level metrics such as file-level or function-level F1 are unavailable.
+This limits our ability to diagnose \emph{why} methods succeed or fail.
+
+\textbf{Cost metric limitations.}
+Method-accounted cost is an idealized measure that attributes only the API and index-construction costs directly incurred by each strategy.
+Actual deployment cost depends on infrastructure choices, caching policies, request batching, and workload patterns not captured in our experimental setup.
+
+\subsection{Reproducibility}
+
+\textbf{Proxy implementations.}
+Several baselines are named with the ``-Like'' suffix to signal that they are proxy reimplementations rather than the original systems.
+In particular, the RepoMap-Like baseline achieved only 6.6\% resolve rate---far below the performance reported for the Aider system from which it draws inspiration~\cite{aider2024repomap}.
+This result most likely reflects an implementation deficiency (e.g., incorrect tag-map construction or context-window formatting) rather than a fundamental limitation of repository-map approaches.
+We include it for transparency but caution against interpreting this data point as evidence that structural maps are ineffective in general.
+Faithful reimplementation of context-construction strategies is non-trivial; community-standard reference implementations would benefit the field.
+
+\textbf{LLM non-determinism.}
+All code and configuration will be released upon publication.
+However, exact LLM outputs are inherently non-reproducible due to API-side model updates, stochastic decoding, and potential changes to serving infrastructure over time.
+
+\medskip
+\noindent
+The most significant threat is the single-run design: while McNemar's test is valid for the observed paired outcomes, it does not account for variance introduced by LLM sampling across repeated runs.
+We encourage future work to adopt multi-sample protocols to quantify this variance.
+
+%% ============================================================

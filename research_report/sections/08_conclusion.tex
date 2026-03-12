@@ -1,3 +1,28 @@
-% TODO: V2 data required
 \section{Conclusion}
 \label{sec:conclusion}
+
+We presented GM-Progressive (GM-P), a graph-based context-construction strategy for LLM-driven repository-level program repair.
+GM-P extracts a dependency graph from source code using lightweight static analysis, then traverses it with a progressive expansion policy to assemble context that is both structurally relevant and budget-aware.
+
+On 500 SWE-bench Verified instances spanning 12 Python repositories, GM-P achieved a 46.8\% resolve rate---significantly higher than all 10 compared methods after Holm--Bonferroni correction at $\alpha = 0.05$ (Section~\ref{sec:results}).
+The smallest observed effect (versus RAG-Progressive) corresponded to Cohen's $h = 0.105$, and the largest (versus RepoMap-Like) to $h = 0.987$.
+Critically, GM-P achieved this performance at approximately $8\times$ lower per-resolved-issue cost than the best-performing RAG-based alternative (RAG-Progressive), because graph construction requires only a single-pass parse rather than embedding every code unit through an LLM API.
+
+An oracle analysis combining the predictions of all methods revealed a 53.8\% ceiling---7 percentage points above GM-P---indicating meaningful complementarity.
+Error analysis showed that RAG-based methods occasionally resolve instances that GM-P misses, particularly those involving semantically related but structurally distant code.
+This suggests that hybrid strategies combining graph-first retrieval with embedding-based fallback could be a productive direction for future work.
+
+The central finding is that \emph{explicit structural dependencies}, cheaply extracted from source code via tree-sitter~\cite{treesitter}, provide context that is at least as effective as learned embeddings for guiding LLM-based repair---and dramatically cheaper to obtain.
+This challenges the prevailing assumption that retrieval-augmented generation is the necessary substrate for repository-scale LLM tasks, and motivates treating cost-per-resolved-issue as a first-class evaluation metric alongside resolve rate.
+
+Several directions remain open.
+First, \textbf{hybrid strategies} that combine graph-based and embedding-based context---for example, graph-first retrieval with RAG fallback for low-confidence instances---could close the oracle gap.
+Second, \textbf{incremental graph maintenance}, updating the dependency graph on each commit rather than rebuilding per snapshot, could further reduce amortized cost in high-issue-volume settings such as large monorepos or nightly CI pipelines; we note this as a practical advantage but have not empirically validated it.
+Third, \textbf{cross-language generalization} to statically-typed languages (Java, TypeScript) where richer type information may improve graph quality warrants investigation.
+Finally, \textbf{multi-run evaluation} with multiple LLM samples per instance is needed to quantify sampling variance and place confidence intervals on the resolve-rate estimates reported here.
+
+Structural dependency graphs offer a cost-effective and statistically reliable alternative to embedding-based retrieval for repository-level code repair.
+We release all code, graph-construction tooling, and experimental configurations to support replication and extension, and we encourage the community to adopt cost-per-resolved-issue as a standard metric in future evaluations of LLM-based software engineering tools.
+
+%% ============================================================
+\appendix

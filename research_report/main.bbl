@@ -1,20 +1,30 @@
-\begin{thebibliography}{19}
+\begin{thebibliography}{28}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
   \providecommand{\doi}[1]{doi: #1}\else
   \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
 
-\bibitem[Brunsfeld et~al.(2018)]{brunsfeld2018treesitter}
+\bibitem[Brunsfeld et~al.(2018{\natexlab{a}})]{brunsfeld2018treesitter}
 Max Brunsfeld et~al.
 \newblock Tree-sitter: An incremental parsing system for programming tools.
-\newblock \url{https://github.com/tree-sitter/tree-sitter}, 2018.
+\newblock \url{https://github.com/tree-sitter/tree-sitter}, 2018{\natexlab{a}}.
+
+\bibitem[Brunsfeld et~al.(2018{\natexlab{b}})]{treesitter}
+Max Brunsfeld et~al.
+\newblock Tree-sitter: An incremental parsing system for programming tools.
+\newblock \url{https://github.com/tree-sitter/tree-sitter}, 2018{\natexlab{b}}.
 
 \bibitem[Chinthareddy(2026)]{reliablegraphrag2026}
 Manideep~Reddy Chinthareddy.
 \newblock Reliable graph-{RAG} for codebases: {AST}-derived graphs vs
   {LLM}-extracted knowledge graphs.
 \newblock \emph{arXiv preprint arXiv:2601.08773}, 2026.
+
+\bibitem[Cohen(1988)]{cohen1988statistical}
+Jacob Cohen.
+\newblock \emph{Statistical Power Analysis for the Behavioral Sciences}.
+\newblock Lawrence Erlbaum Associates, 2nd edition, 1988.
 
 \bibitem[Edge et~al.(2024)Edge, Trinh, Cheng, Bradley, Chao, Mody, Truitt,
   Metropolitansky, Osazuwa~Ness, and Larson]{edge2024graphrag}
@@ -25,16 +35,20 @@ Darren Edge, Ha~Trinh, Newman Cheng, Joshua Bradley, Alex Chao, Apurva Mody,
   summarization.
 \newblock \emph{arXiv preprint arXiv:2404.16130}, 2024.
 
+\bibitem[Gauthier(2023)]{aider2023}
+Paul Gauthier.
+\newblock Aider: {AI} pair programming in your terminal.
+\newblock \url{https://aider.chat}, 2023.
+
+\bibitem[Gauthier(2024)]{aider2024repomap}
+Paul Gauthier.
+\newblock Aider: Repository map.
+\newblock \url{https://aider.chat/docs/repomap.html}, 2024.
+
 \bibitem[{Gemini Team, Google DeepMind}(2024)]{gemini2024}
 {Gemini Team, Google DeepMind}.
 \newblock Gemini: A family of highly capable multimodal models.
 \newblock \emph{arXiv preprint arXiv:2312.11805}, 2024.
-
-\bibitem[Hagberg et~al.(2008)Hagberg, Schult, and Swart]{hagberg2008networkx}
-Aric~A. Hagberg, Daniel~A. Schult, and Pieter~J. Swart.
-\newblock Exploring network structure, dynamics, and function using {NetworkX}.
-\newblock In \emph{Proceedings of the 7th Python in Science Conference
-  (SciPy)}, pages 11--15, 2008.
 
 \bibitem[Hai et~al.(2024)Hai, Manh, and Bui]{repoexec2024}
 Nam~Le Hai, Dung~Nguyen Manh, and Nghi D.~Q. Bui.
@@ -43,13 +57,26 @@ Nam~Le Hai, Dung~Nguyen Manh, and Nghi D.~Q. Bui.
 \newblock \emph{arXiv preprint arXiv:2406.11927}, 2024.
 \newblock URL \url{https://arxiv.org/abs/2406.11927}.
 
-\bibitem[Jimenez et~al.(2024)Jimenez, Yang, Wettig, Yao, Pei, Press, and
-  Narasimhan]{swebench2024}
+\bibitem[Holm(1979)]{holm1979simple}
+Sture Holm.
+\newblock A simple sequentially rejective multiple test procedure.
+\newblock \emph{Scandinavian Journal of Statistics}, 6\penalty0 (2):\penalty0
+  65--70, 1979.
+
+\bibitem[Jimenez et~al.(2024{\natexlab{a}})Jimenez, Yang, Wettig, Yao, Pei,
+  Press, and Narasimhan]{jimenez2024swebench}
+Carlos~E. Jimenez, John Yang, Alexander Wettig, Shunyu Yao, Kexin Pei, Ofir
+  Press, and Karthik Narasimhan.
+\newblock {SWE}-bench: Can language models resolve real-world {GitHub} issues?
+\newblock In \emph{ICLR}, 2024{\natexlab{a}}.
+
+\bibitem[Jimenez et~al.(2024{\natexlab{b}})Jimenez, Yang, Wettig, Yao, Pei,
+  Press, and Narasimhan]{swebench2024}
 Carlos~E. Jimenez, John Yang, Alexander Wettig, Shunyu Yao, Kexin Pei, Ofir
   Press, and Karthik Narasimhan.
 \newblock {SWE}-bench: Can language models resolve real-world {GitHub} issues?
 \newblock In \emph{International Conference on Learning Representations
-  (ICLR)}, 2024.
+  (ICLR)}, 2024{\natexlab{b}}.
 \newblock URL \url{https://arxiv.org/abs/2310.06770}.
 
 \bibitem[Johnson et~al.(2021)Johnson, Douze, and J{\'e}gou]{johnson2021faiss}
@@ -92,6 +119,26 @@ Yang Liu, Li~Zhang, Fang Liu, Zhuohang Wang, Donglin Wei, Zhishuo Yang, Kechi
   repository-level code generation.
 \newblock \emph{arXiv preprint arXiv:2507.14791}, 2025.
 
+\bibitem[Lv and Zhai(2011)]{lv2011lower}
+Yuanhua Lv and ChengXiang Zhai.
+\newblock When documents are very long, {BM25} fails!
+\newblock \emph{Proceedings of the 34th International ACM SIGIR Conference on
+  Research and Development in Information Retrieval}, pages 1103--1104, 2011.
+
+\bibitem[McNemar(1947{\natexlab{a}})]{mcnemar1947}
+Quinn McNemar.
+\newblock Note on the sampling error of the difference between correlated
+  proportions or percentages.
+\newblock \emph{Psychometrika}, 12\penalty0 (2):\penalty0 153--157,
+  1947{\natexlab{a}}.
+
+\bibitem[McNemar(1947{\natexlab{b}})]{mcnemar1947note}
+Quinn McNemar.
+\newblock Note on the sampling error of the difference between correlated
+  proportions or percentages.
+\newblock \emph{Psychometrika}, 12\penalty0 (2):\penalty0 153--157,
+  1947{\natexlab{b}}.
+
 \bibitem[Ouyang et~al.(2024)Ouyang, Yu, Ma, Xiao, Zhang, Jia, Han, Zhang, and
   Yu]{repograph2024}
 Siru Ouyang, Wenhao Yu, Kaixin Ma, Zilin Xiao, Zhihan Zhang, Mengzhao Jia,
@@ -119,6 +166,12 @@ Muhammad~Shihab Rashid et~al.
 vitali87.
 \newblock Code-graph-{RAG}.
 \newblock \url{https://github.com/vitali87/code-graph-rag}, 2025.
+
+\bibitem[Wilson(1927)]{wilson1927probable}
+Edwin~B. Wilson.
+\newblock Probable inference, the law of succession, and statistical inference.
+\newblock \emph{Journal of the American Statistical Association}, 22\penalty0
+  (158):\penalty0 209--212, 1927.
 
 \bibitem[Xia et~al.(2024)Xia, Deng, Dunn, and Zhang]{xia2024agentless}
 Chunqiu~Steven Xia, Yinlin Deng, Soren Dunn, and Lingming Zhang.

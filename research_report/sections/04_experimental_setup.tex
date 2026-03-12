@@ -1,15 +1,51 @@
-% TODO: V2 data required
 \section{Experimental Setup}
-\label{sec:experimental_setup}
+\label{sec:setup}
 
-\subsection{Datasets}
-\label{sec:datasets}
+\subsection{Research Questions}
 
-\subsection{Evaluation Metrics}
-\label{sec:metrics}
+We organize our evaluation around three research questions:
 
-\subsection{Baselines}
-\label{sec:baselines}
+\begin{description}
+    \item[RQ1 (Effectiveness)] Does GM-Progressive (GM-P) resolve more SWE-bench Verified instances than alternative context-construction methods under an identical downstream patching pipeline?
+    \item[RQ2 (Cost)] What is the per-resolved-issue token cost of GM-P relative to RAG-based and other retrieval methods?
+    \item[RQ3 (Ceiling)] How much headroom remains between GM-P and an oracle that selects the best-performing method per instance?
+\end{description}
 
-\subsection{Cost Accounting}
-\label{sec:cost_accounting}
+\subsection{Benchmark and Instance Selection}
+
+We evaluate on \textbf{SWE-bench Verified}~\cite{jimenez2024swebench}, a curated subset of 500 instances drawn from 12 open-source Python repositories spanning web frameworks (Django), scientific computing (scikit-learn, sympy, matplotlib), developer tooling (pytest, pylint, sphinx), and data processing (astropy, xarray, pydata/sparse, requests, flask). Each instance pairs a GitHub issue description with a ground-truth patch and a repository-specific test suite that must pass for the instance to be marked as resolved. The 500 instances exhibit substantial diversity in patch complexity: single-line fixes, multi-file refactorings, and additions of new functionality. Every method is executed on all 500 instances, yielding paired binary outcomes (resolved/not resolved) suitable for within-subject statistical testing.
+
+\subsection{Methods Compared}
+
+We compare 11 context-construction strategies organized into five families:
+
+\begin{enumerate}
+    \item \textbf{Graph-based:} \emph{GM-Progressive} (GM-P, proposed), which performs LLM-guided progressive expansion over the graph model; \emph{GM-Deterministic} (GM-D), which uses fixed-depth breadth-first expansion without LLM ranking; and \emph{RepoMap-Like} (RPM), a reimplementation of the tree-sitter-based repository skeleton approach inspired by Aider's RepoMap~\cite{aider2024repomap}.
+    \item \textbf{RAG-based:} \emph{RAG-Progressive} (RAG-P), the embedding-based analogue of GM-P that iteratively retrieves and expands context via vector similarity; \emph{RAG-Metadata} (RAG-M), which enriches chunk embeddings with structural metadata; \emph{Raw-RAG-Fixed} (RRX), a fixed-budget single-shot RAG retrieval; and \emph{Raw-RAG-Function} (RRF), which retrieves at function-level granularity.
+    \item \textbf{Search-based:} \emph{BM25}, a sparse lexical retrieval baseline using Okapi BM25 over function-level chunks.
+    \item \textbf{Agentic:} \emph{Agentic-Cold-Start} (ACS), which employs an LLM agent with file-browsing tools to locate relevant context from scratch.
+    \item \textbf{Hybrid:} \emph{Agentless-Like Localization} (AGL), which adapts the Agentless~\cite{xia2024agentless} two-stage localization pipeline. \textbf{Disclosure:} AGL uses the GM graph in its Stage~2 refinement step; this constitutes a confound, and its results should be interpreted with this dependency in mind.
+\end{enumerate}
+
+\noindent Table~\ref{tab:main_results} in the appendix provides a structured comparison of all methods along dimensions including context source, LLM usage during construction, and index reusability.
+
+\subsection{Downstream Patching Pipeline}
+
+To isolate the effect of context construction, all 11 methods feed into an \emph{identical} downstream patching pipeline adapted from Agentless~\cite{xia2024agentless}. The pipeline proceeds in two stages: (1)~\emph{localization}, where the constructed context is presented to the LLM alongside the issue description to identify candidate edit locations, and (2)~\emph{patch generation}, where the LLM produces a unified diff targeting the identified locations. We use GPT-4o (\texttt{gpt-4o-2024-05-13}) with temperature 0.0 and a maximum output length of 4{,}096 tokens for both stages. Generated patches are validated using the SWE-bench Docker harness, which executes the repository's full test suite against the patched code. An instance is marked as resolved only if all relevant tests pass. The sole independent variable across experimental conditions is the context-construction strategy; the LLM, prompt templates, patch generation logic, and validation harness are held constant.
+
+\subsection{Cost Accounting Methodology}
+
+We report cost in terms of \emph{tokens consumed}, encompassing both input and output tokens across all LLM and embedding API calls. Our primary metric is \textbf{method-accounted cost}: only the API and compute costs attributable to the method's design-intended execution path. For graph-based methods, this includes graph construction (deterministic, LLM-free) and any LLM calls during progressive expansion. For RAG-based methods, this includes embedding generation for all chunks and vector retrieval queries.
+
+\paragraph{Dual-build disclosure.} Due to an architectural coupling in the experimental harness (\texttt{run\_patch.py}), both the graph index and the RAG embedding index were constructed for every experimental run, regardless of which method was under evaluation. We report \emph{method-accounted} cost (reflecting design intent) as the primary metric throughout the paper. The full \emph{as-run-consumed} cost, which includes the redundant index construction, is reported in Appendix~\ref{app:per_repo} for transparency. The dual-build overhead does not affect resolve rates or the relative ordering of methods on the cost axis, as it is constant across all conditions.
+
+\paragraph{Amortization.} Graph and embedding index construction costs are amortized across all issues sharing the same repository snapshot. As issue volume per snapshot increases, the marginal cost of graph-based methods approaches only the per-issue expansion cost, which is substantially lower than the per-issue retrieval cost of RAG methods.
+
+\subsection{Statistical Testing Protocol}
+\label{sec:stats}
+
+We use \textbf{McNemar's exact test}~\cite{mcnemar1947note} on paired binary outcomes (resolved/not resolved) for each of the nine pairwise comparisons between GM-P and every other method. McNemar's test is appropriate here because the 500 instances are shared across conditions, and the test statistic depends only on the discordant pairs---instances where exactly one method succeeds. We apply \textbf{Holm--Bonferroni correction}~\cite{holm1979simple} across the nine comparisons to control the family-wise error rate at $\alpha = 0.05$. Effect sizes are reported as \textbf{Cohen's $h$}~\cite{cohen1988statistical}, computed from the arcsine-transformed proportions, with conventional thresholds of 0.2 (small), 0.5 (medium), and 0.8 (large). Confidence intervals for resolve rates are \textbf{Wilson score intervals}~\cite{wilson1927probable} at the 95\% level.
+
+\paragraph{Limitations of the testing protocol.} Each method was executed in a \emph{single run} per instance. McNemar's test on $N = 500$ paired binary observations provides adequate statistical power for the effect sizes observed (the smallest significant $h = 0.10$ corresponds to 67 vs.\ 43 discordant pairs). However, a single run does not capture variance arising from LLM sampling stochasticity (e.g., temperature-induced variation, API-side nondeterminism). We flag this as a limitation: observed differences at the lower end of the effect-size range (e.g., GM-P vs.\ RRX, $h = 0.10$) should be interpreted with caution, as they might not replicate under repeated sampling. Additionally, the 500 instances are drawn from 12 repositories, introducing within-repository clustering that McNemar's test does not model. We report per-repository breakdowns in Appendix~\ref{app:per_repo} to assess the consistency of effects across repositories.
+
+%% ============================================================

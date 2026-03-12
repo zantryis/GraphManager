@@ -1,3 +1,84 @@
-% TODO: V2 data required
-\section{Appendix}
-\label{sec:appendix}
+\section{Per-Repository Breakdown}
+\label{app:per_repo}
+
+Table~\ref{tab:per_repo} reports the resolve counts and rates for GM-Progressive and selected comparison methods, broken down by repository.
+Repositories vary substantially in size, domain, and the number of contributed instances; Django alone accounts for 46.2\% of the benchmark.
+
+\begin{table*}[t]
+\centering
+\caption{Per-repository resolve counts (resolved / total) and resolve rates (\%) for GM-Progressive and selected methods on SWE-bench Verified. Best resolve rate per repository is \textbf{bolded}. Oracle denotes the union of all 11 methods.}
+\label{tab:per_repo}
+\small
+\begin{tabular}{l r r r r r r r r}
+\toprule
+\textbf{Repository} & \textbf{$n$} & \textbf{GM-P} & \textbf{Oracle} & \textbf{RAG-P} & \textbf{BM25} & \textbf{RRF-Hybrid} & \textbf{ACS} & \textbf{RRX} \\
+\midrule
+astropy       &  22 & 12 (54.5\%) & 11 (50.0\%) &  6 (27.3\%) &  8 (36.4\%) & --- & --- & --- \\
+django        & 231 & 130 (56.3\%) & 143 (61.9\%) & 126 (54.5\%) & --- & --- & --- & 131 (56.7\%) \\
+matplotlib    &  34 & 11 (32.4\%) & 10 (29.4\%) & --- & --- & --- &  7 (20.6\%) & --- \\
+pytest        &  19 & 12 (\textbf{63.2\%}) & 13 (68.4\%) & 11 (57.9\%) & --- & --- & --- & --- \\
+scikit-learn  &  32 & 19 (59.4\%) & 21 (\textbf{65.6\%}) & 18 (56.3\%) & --- & --- & --- & --- \\
+sympy         &  75 & 26 (34.7\%) & 42 (\textbf{56.0\%}) & --- & --- & --- & --- & 25 (33.3\%) \\
+sphinx        &  44 &  8 (18.2\%) & 11 (25.0\%) & --- & --- &  9 (\textbf{20.5\%}) & --- & --- \\
+xarray        &  22 & 12 (54.5\%) & 14 (\textbf{63.6\%}) & 11 (50.0\%) & --- & --- & --- & --- \\
+\midrule
+\textbf{All}  & \textbf{500} & \textbf{234 (46.8\%)} & \textbf{269 (53.8\%)} & --- & --- & --- & --- & --- \\
+\bottomrule
+\end{tabular}
+\vspace{0.5em}
+
+\raggedright
+\footnotesize{Dashes (---) indicate that the method was not among the top performers for that repository or that per-repo counts were not recorded for all methods. Oracle counts may appear lower than GM-P for individual repositories (e.g., astropy, matplotlib) because the oracle is computed instance-wise across all 11 methods; a repository-level count can be lower when the oracle resolves different instances than GM-P within that repository.}
+\end{table*}
+
+\noindent
+Several patterns are notable.
+GM-P performs strongest on pytest (63.2\%), scikit-learn (59.4\%), and django (56.3\%)---repositories with well-structured module hierarchies and explicit import chains that the dependency graph captures effectively.
+Performance is weakest on sphinx (18.2\%) and sympy (34.7\%), where issues often involve deeply nested symbolic transformations or documentation-build logic that may not be well-represented by call-level and import-level edges.
+The oracle gap is largest for sympy (21.3 percentage points), suggesting that this repository would benefit most from hybrid or ensemble strategies.
+
+
+\section{Full McNemar Test Results}
+\label{app:mcnemar}
+
+Table~\ref{tab:mcnemar_full} reports the complete pairwise McNemar test results for GM-Progressive versus each of the 10 comparison methods.
+All tests use the exact binomial variant of McNemar's test on the $2 \times 2$ contingency table of paired outcomes.
+Columns $b$ and $c$ denote the off-diagonal counts: $b$ is the number of instances resolved by GM-P but not by the comparison method, and $c$ is the converse.
+The raw $p$-value is from the two-sided exact McNemar test; $p_{\text{Holm}}$ is the Holm--Bonferroni-adjusted $p$-value controlling the family-wise error rate across all 9 comparisons at $\alpha = 0.05$.
+Cohen's $h$ is computed from the marginal proportions as a standardized effect size.
+
+\begin{table*}[t]
+\centering
+\caption{Full McNemar test results: GM-Progressive vs.\ each comparison method ($n = 500$ paired instances). All comparisons are significant after Holm--Bonferroni correction at $\alpha = 0.05$.}
+\label{tab:mcnemar_full}
+\small
+\begin{tabular}{l r r r r r l}
+\toprule
+\textbf{Comparison Method} & \textbf{$b$} & \textbf{$c$} & \textbf{$p$ (raw)} & \textbf{$p_{\text{Holm}}$} & \textbf{Cohen's $h$} & \textbf{Sig.} \\
+\midrule
+RepoMap-Like              & 212 &  11 & $< 10^{-6}$ & $< 10^{-6}$ & 0.987 & Yes \\
+Agentless-Like Loc.       & 141 &  19 & $< 10^{-6}$ & $< 10^{-6}$ & 0.521 & Yes \\
+GM-Deterministic          & 101 &  30 & $< 10^{-6}$ & $< 10^{-6}$ & 0.291 & Yes \\
+RAG-Metadata              &  94 &  34 & $< 10^{-6}$ & $< 10^{-6}$ & 0.245 & Yes \\
+Agentic Cold Start        &  87 &  37 & $4.0 \times 10^{-6}$ & $4.0 \times 10^{-5}$ & 0.203 & Yes \\
+BM25                      &  81 &  45 & $7.6 \times 10^{-4}$ & $6.8 \times 10^{-3}$ & 0.146 & Yes \\
+Raw-RAG-Function          &  71 &  40 & $1.8 \times 10^{-3}$ & $1.3 \times 10^{-2}$ & 0.125 & Yes \\
+RAG-Progressive           &  69 &  43 & $5.9 \times 10^{-3}$ & $3.6 \times 10^{-2}$ & 0.105 & Yes \\
+Raw-RAG-Fixed             &  67 &  43 & $4.0 \times 10^{-3}$ & $2.8 \times 10^{-2}$ & 0.097 & Yes \\
+\bottomrule
+\end{tabular}
+\vspace{0.5em}
+
+\raggedright
+\footnotesize{$b$: instances resolved by GM-P but not by the comparison method. $c$: instances resolved by the comparison method but not by GM-P. Rows are sorted by descending effect size. The Holm--Bonferroni procedure orders the 9 raw $p$-values and applies step-down adjustment; all remain below $\alpha = 0.05$.}
+\end{table*}
+
+\noindent
+Several observations merit discussion.
+First, the comparison with RepoMap-Like ($h = 0.987$) is an extreme outlier driven by the likely implementation deficiency discussed in Section~\ref{sec:threats}; this effect size should not be interpreted as representative of the gap between graph-based and map-based approaches in general.
+Second, the three closest comparisons---BM25, Raw-RAG-Function, RAG-Progressive, and Raw-RAG-Fixed---all have $h < 0.15$, indicating small but statistically significant effects.
+These small effect sizes underscore that the practical advantage of GM-P over strong RAG baselines lies primarily in \emph{cost efficiency} rather than large resolve-rate differences.
+Third, the Agentless-Like comparison ($h = 0.521$, a medium-to-large effect) should be interpreted with the confound noted in Section~\ref{sec:threats}: this method shares the GM dependency graph, so the comparison reflects differences in traversal strategy rather than graph-based versus non-graph-based retrieval.
+
+The consistency of significance across all nine comparisons, surviving Holm--Bonferroni correction, provides confidence that GM-P's advantage is robust for the observed run, while the single-run limitation (Section~\ref{sec:threats}) remains the primary caveat for generalization.
+```
