@@ -205,7 +205,7 @@ def write_retrieval_csv(retrieval: dict, output_path: Path) -> None:
                     "n_issues": int(data.get("n_issues") or data.get("n_success") or 0),
                 })
             else:
-                rows.append({f: "" for f in fieldnames} | {"repo": repo, "method": method})
+                row = {f: "" for f in fieldnames}; row.update({"repo": repo, "method": method}); rows.append(row)
 
     with output_path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -239,7 +239,7 @@ def write_patching_csv(patching: dict, output_path: Path) -> None:
                     "CPR_as_run": int(cpr_as_run) if cpr_as_run is not None else "",
                 })
             else:
-                rows.append({f: "" for f in fieldnames} | {"repo": repo, "method": method})
+                row = {f: "" for f in fieldnames}; row.update({"repo": repo, "method": method}); rows.append(row)
 
     with output_path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

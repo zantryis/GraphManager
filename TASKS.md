@@ -29,34 +29,14 @@
 **Notes:** Config updated with explicit 11-method list. Partial results exist for seaborn (10 methods), pylint (10 methods), sphinx (3 methods). Run with `run_suite.py --max-parallel 2`. Agentic methods (cold_start, agentless_like) need LLM calls, so budget will be higher than the original 3-method plan.
 **Command:** `./.venv/bin/python run_suite.py experiments_retrieval_expansion_v2.yaml --max-parallel 2`
 
-### T1: Complete Stage 1 for all V2 patching manifests (10 methods + oracle)
-**Priority:** P0 (blocking everything downstream)
-**Acceptance criteria:**
-- All 123 manifests in `patch_manifests/v2_verified/` (12 repos x 10 methods + oracle + 3 pilots) have `predictions_partial.jsonl` or `predictions.json`
-- Dashboard shows 0 pending/stalled rows for Stage 1
-**Owner:** unassigned
-**Status:** `[BACKLOG]`
-**Notes:** 123 manifests = 12 oracles + 3 pilots + 108 full (12 repos x 9 non-oracle methods). ~1500/4000 instances done from prior 8-method run. Pool is resumable: `tools/run_manifest_pool.py --resume-incomplete`
+### ~~T1: Complete Stage 1 for all V2 patching manifests (10 methods + oracle)~~
+**Status:** `[DONE]` — 135/135 manifests complete (2026-03-04)
 
-### T2: Run Stage 2 (SWE-bench harness) on all completed Stage 1 data
-**Priority:** P0 (blocking results)
-**Acceptance criteria:**
-- Every run directory with a `predictions.json` also has `harness_output/` with `report.json`
-- `patch_summary.json` contains `n_resolved` for each manifest
-**Owner:** unassigned
-**Status:** `[BACKLOG]`
-**Depends on:** T1
-**Notes:** Docker is available locally (v28.4.0). No Modal needed.
+### ~~T2: Run Stage 2 (SWE-bench harness) on all completed Stage 1 data~~
+**Status:** `[DONE]` — 135/135 valid harness results, 3 passes of t2_rerun.py (2026-03-04)
 
-### T3: Aggregate V2 results into scorecard
-**Priority:** P1
-**Acceptance criteria:**
-- CSV/JSON artifact with columns: repo, method, n_instances, n_resolved, resolve_rate, CPR_method_accounted, CPR_as_run
-- Covers all 12 repos x 10 methods (+ oracle)
-- Retrieval F1 column included (from T0 + existing matrix data)
-**Owner:** unassigned
-**Status:** `[BACKLOG]`
-**Depends on:** T0, T2
+### ~~T3: Aggregate V2 results into scorecard~~
+**Status:** `[DONE]` — Final scorecard at results/v2_scorecard/patching_table.tex (2026-03-04)
 
 ### T4: Run priority ablations (max_turns, BM25 granularity)
 **Priority:** P2
@@ -101,16 +81,8 @@
 ### ~~T9: Dashboard UI rewrite~~
 **Status:** `[DONE]` — 2026-02-25. Full redesign: slate dark theme, 3 tabs (Retrieval 12×11 grid + ETA / Patching / Campaign), new routes `/api/retrieval_status` + `/api/campaign_status`, `--campaigns-dir` arg. Data layer extended with `build_retrieval_status()` + `load_campaign_state()`. 11 new tests (274 total).
 
-### T10: V2 campaign execution (async)
-**Priority:** P0
-**Acceptance criteria:**
-- Dashboard shows 99/99 retrieval cells green (T0 done)
-- All 123 patching manifests have Stage 1 predictions (T1 done)
-- All Stage 1 runs have harness results (T2 done)
-**Owner:** unassigned
-**Status:** `[BACKLOG]` — ready to launch
-**Command:** `PYTHONUNBUFFERED=1 ./.venv/bin/python tools/run_campaign.py campaigns/v2_full.yaml --resume`
-**Notes:** Campaign runner handles sequencing (T0 pass1→pass2→pass3→T1→T2). Dashboard on port 5051. Run `--skip-completed` prevents re-runs on resume.
+### ~~T10: V2 campaign execution (async)~~
+**Status:** `[DONE]` — T1/T2/T3 all complete (2026-03-04). T0 (retrieval-only eval) not run; retrieval F1 not populated in scorecard.
 
 ### T12: Fix missing bib entries
 **Priority:** P1 (blocks LaTeX compilation)
@@ -203,3 +175,7 @@
 | -- | Campaign runner | `tools/run_campaign.py` + `campaigns/v2_full.yaml` | 2026-02-25 |
 | -- | T3 aggregation script | `tools/aggregate_v2_results.py` | 2026-02-25 |
 | -- | Paper archival + V2 skeleton | `research_report/archive/v1/` + stubs + `03_method.tex` complete | 2026-02-25 |
+| T1 | Stage 1 patch generation (135 manifests) | 135/135 complete, 159 valid runs | 2026-03-04 |
+| T2 | Stage 2 SWE-bench harness eval | 135/135 valid harness results, 3 passes t2_rerun.py | 2026-03-04 |
+| T3 | Aggregate V2 scorecard | patching_table.tex, patching.csv, retrieval.csv, mcnemar.txt | 2026-03-04 |
+| T10 | V2 campaign execution | T1+T2+T3 complete | 2026-03-04 |

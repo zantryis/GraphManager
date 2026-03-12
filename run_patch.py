@@ -1224,7 +1224,7 @@ def _distribute_instances(instances: list, n_workers: int) -> list[list]:
     return chunks
 
 
-def _run_evaluate_only(run_dir: str, modal: bool = False) -> dict:
+def _run_evaluate_only(run_dir: str, modal: bool = False, harness_workers: int = 4, rewrite_reports: bool = False) -> dict:
     """
     Stage 2 (evaluate-only): run SWE-bench harness on an existing predictions.json.
 
@@ -1302,7 +1302,7 @@ def _run_evaluate_only(run_dir: str, modal: bool = False) -> dict:
             split=split,
             instance_ids=instance_ids,
             predictions_path=str(predictions_path),
-            max_workers=4,  # Modal path ignores this; 4 controls local Docker thread count
+            max_workers=harness_workers,
             force_rebuild=False,
             cache_level="env",
             clean=False,
@@ -1310,7 +1310,7 @@ def _run_evaluate_only(run_dir: str, modal: bool = False) -> dict:
             run_id=harness_run_id,
             timeout=600,
             namespace=None,
-            rewrite_reports=False,
+            rewrite_reports=rewrite_reports,
             modal=modal,
             report_dir=str(harness_report_dir),
         )
@@ -1383,6 +1383,8 @@ def run_patch_pipeline(
     run_dir: str | None = None,
     resume: bool = False,
     n_workers: int = 1,
+    harness_workers: int = 4,
+    rewrite_reports: bool = False,
 ) -> dict:
     """
     Run retrieval → patch generation → optional evaluation for all instances in a manifest.
@@ -1397,7 +1399,7 @@ def run_patch_pipeline(
         if not run_dir:
             print("ERROR: --evaluate-only requires --run-dir <path-to-existing-run>")
             sys.exit(1)
-        return _run_evaluate_only(run_dir=run_dir, modal=modal)
+        return _run_evaluate_only(run_dir=run_dir, modal=modal, harness_workers=harness_workers, rewrite_reports=rewrite_reports)
 
     n_workers = max(1, int(n_workers))
 
@@ -2079,7 +2081,7 @@ def run_patch_pipeline(
                     split=split,
                     instance_ids=instance_ids,
                     predictions_path=str(predictions_path),
-                    max_workers=4,  # Modal path ignores this; 4 controls local Docker thread count
+                    max_workers=harness_workers,
                     force_rebuild=False,
                     cache_level="env",
                     clean=False,
@@ -2087,7 +2089,7 @@ def run_patch_pipeline(
                     run_id=harness_run_id,
                     timeout=600,
                     namespace=None,
-                    rewrite_reports=False,
+                    rewrite_reports=rewrite_reports,
                     modal=modal,
                     report_dir=str(harness_report_dir),
                 )
@@ -2223,6 +2225,18 @@ def main():
             "Each worker uses an isolated repo clone and writes a worker checkpoint file."
         ),
     )
+    parser.add_argument(
+        "--harness-workers",
+        type=int,
+        default=4,
+        metavar="N",
+        help="Number of parallel Docker workers for SWE-bench harness (default: 4). Use 1 to eliminate race conditions.",
+    )
+    parser.add_argument(
+        "--rewrite-reports",
+        action="store_true",
+        help="Force SWE-bench to re-evaluate even if a cached report already exists for this run_id.",
+    )
     args = parser.parse_args()
 
     run_patch_pipeline(
@@ -2235,6 +2249,8 @@ def main():
         run_dir=args.run_dir,
         resume=args.resume,
         n_workers=args.workers,
+        harness_workers=args.harness_workers,
+        rewrite_reports=args.rewrite_reports,
     )
 
 

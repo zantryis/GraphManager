@@ -1,7 +1,7 @@
 # STATE.md -- Current project status
 
-Last updated: 2026-03-02 MST
-Last agent: Claude (128/135 T1 complete; migrating to high-RAM server for T1 finish + T2 local Docker)
+Last updated: 2026-03-12 UTC
+Last agent: Claude (V2 campaign COMPLETE — T1/T2/T3 all finished)
 
 ---
 
@@ -90,44 +90,32 @@ raw_rag_fixed, rag_metadata, bm25, agentic_cold_start, repomap_like, agentless_l
 
 (gm_baseline and rag_baseline excluded from patching — single-turn ablation variants)
 
-### V2 experiment runs (partial)
+### V2 experiment runs (COMPLETE 2026-03-04)
 
+- **T1 (Stage 1 — patch generation)**: 135/135 manifests complete (12 repos × 11 methods)
+- **T2 (Stage 2 — SWE-bench harness eval)**: 135/135 valid harness results (3 passes of t2_rerun.py)
+- **T3 (aggregation)**: Final scorecard at `results/v2_scorecard/patching_table.tex`
+- **Results archive**: `gm_v2_results.tar.gz` (results data + README guide)
+- 159 valid runs, 44 stale/incomplete runs (from retries), 203 total run directories
 - Pilot (psf/requests, n=8): oracle 50%, bm25 50%, gm_progressive 62.5%. All gates passed.
-- Full 8-method campaign partially completed (~1500/4000 Stage 1 instances).
-  Stopped mid-run to align method matrix (now 10-method).
-- Data on disk in `results/v2_full_runs/` is resumable.
-- Retrieval expansion partial results:
-  - seaborn (10 methods): GM(p)=0.667, RAG(p)=0.400, BM25=0.258
-  - pylint (10 methods): GM(p)=0.517, RAG(p)=0.477, BM25=0.181
-  - sphinx (3 methods only, incomplete): GM(p)=0.663, RAG(p)=0.695, BM25=0.140
-- Stage 2 (harness eval) NOT yet run on full campaign data.
+- Key results (resolve rate):
+  - GM-P best: astropy 55%, pytest 63%, scikit-learn 59%, xarray 55%
+  - django: RRX 57% (GM-P 56%), sympy: RRX 33% (GM-P 35%)
+  - All-zero: seaborn (n=2), pylint (n=10); flask (n=1) noisy 100%
 
 ---
 
 ## What is next
 
-See TASKS.md for the active task. High-level sequence:
+See TASKS.md for the active task. T1/T2/T3 are all COMPLETE. Remaining:
 
-1. **T1 campaign** (**128/135 COMPLETE** as of 2026-03-02): 7 manifests pending (all django/sympy), all with checkpoints. Migrating to high-RAM server (~500GB) for final 7 + T2 harness.
-   - **Pending**: django/rag_metadata (120ckpt), django/rag_progressive (fresh), django/raw_rag_fixed (111ckpt), django/raw_rag_function (fresh), django/repomap_like (fresh), sympy/raw_rag_function (fresh), sympy/repomap_like (fresh)
-   - **Data integrity**: VERIFIED. 128 complete summaries all have valid predictions.json. 117 NULL repo_name in old patch_summary.json files — all recoverable via run_meta.json fallback in aggregate_v2_results.py.
-   - **OOM lessons (DO NOT repeat on any machine)**: `--run-workers 1` always. `--max-parallel-repos 4` safe on 500GB server; never exceed 4 for embed-heavy methods even with high RAM (Gemini API quota is the real bottleneck).
-   - Local pool was stopped before migration. All checkpoints intact in `results/v2_full_runs/`.
-   - Server T1 command: `--max-parallel-repos 4 --run-workers 1 --evaluate-mode stage1_only --resume-incomplete`
-2. **T2 (harness eval)**: **DESIGN GAP FIXED** (commit 9d9c274). Modal credits EXPIRED — use `--execution-mode local` with Docker on server. Run after T1 100% on server:
-   ```
-   PYTHONUNBUFFERED=1 ./.venv/bin/python -u tools/run_manifest_pool.py \
-     --manifest-list campaigns/v2_manifests.txt \
-     --results-dir results/v2_full_runs \
-     --evaluate-mode stage12 --execution-mode local \
-     --max-parallel-repos 8 --run-workers 1 \
-     --resume-incomplete
-   ```
-   Requires Docker on server. Pre-pull images: `docker pull swebench/sweb.eval.x86_64.django_django:latest` to test.
-3. **T3**: `python tools/aggregate_v2_results.py --results-root results --output-dir results/v2_scorecard`
-4. **T3**: `python tools/aggregate_v2_results.py --results-root results --output-dir results/v2_scorecard`
-5. **T4**: Priority ablations (if needed)
-6. **T5**: Fill V2 paper sections with data (research_report/sections/)
+1. ~~**T1 campaign**~~: **COMPLETE** (135/135 manifests, 2026-03-04)
+2. ~~**T2 (harness eval)**~~: **COMPLETE** (135/135 valid results, 2026-03-04)
+3. ~~**T3 (aggregation)**~~: **COMPLETE** (scorecard at results/v2_scorecard/, 2026-03-04)
+4. **T4**: Priority ablations (if needed)
+5. **T5**: Fill V2 paper sections with data (research_report/sections/)
+6. **Statistical tests**: McNemar + Holm-Bonferroni (T14), bootstrap CIs (T13), binomial CIs (T15)
+7. **Paper writing**: Threats to validity (T16), missing bib entries (T12)
 
 ---
 
